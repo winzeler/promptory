@@ -1,0 +1,29 @@
+name: Prompt Evaluations
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "!README.md"
+      - "!CLAUDE.md"
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install promptfoo
+        run: npm install -g promptfoo
+      - name: Find changed prompt files
+        id: changed
+        run: |
+          echo "files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD -- '*.md' | grep -v README | grep -v CLAUDE | tr '\n' ' ')" >> $GITHUB_OUTPUT
+      - name: Run evaluations
+        if: steps.changed.outputs.files != ''
+        run: |
+          echo "Changed prompt files: ${{ steps.changed.outputs.files }}"
+          echo "Promptfoo evaluation would run here (Phase 2)"
+          # promptfoo eval --config promptfooconfig.yaml
