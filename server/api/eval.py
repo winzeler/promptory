@@ -39,7 +39,7 @@ async def run_eval(prompt_id: str, request: Request):
     # Extract eval config and body from front-matter
     fm = json.loads(prompt.get("front_matter", "{}"))
     eval_config = fm.get("eval")
-    prompt_body = fm.get("_body", "")
+    prompt_body = prompt.get("body") or fm.get("_body", "")
 
     # Create eval run records
     runs = []
@@ -105,3 +105,35 @@ async def delete_eval_run(run_id: str, request: Request):
     db = await get_db()
     await eval_queries.delete_eval_run(db, run_id)
     return {"ok": True}
+
+
+@router.post("/prompts/{prompt_id}/generate-tests")
+async def generate_tests(prompt_id: str, request: Request):
+    """Auto-generate test cases for a prompt using PromptPex (LLM-based test generation)."""
+    _require_user(request)
+    db = await get_db()
+
+    prompt = await prompt_queries.get_prompt(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}})
+
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    model = body.get("model", "gemini-2.0-flash")
+
+    # Get prompt body from SQLite or front-matter
+    fm = json.loads(prompt.get("front_matter", "{}"))
+    prompt_body = prompt.get("body") or fm.get("_body", "")
+
+    if not prompt_body.strip():
+        raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_PROMPT", "message": "Prompt has no body to generate tests from"}})
+
+    from server.services.promptpex_service import generate_tests_with_llm, tests_to_eval_config
+
+    tests = await generate_tests_with_llm(prompt_body, prompt_name=prompt.get("name"), model=model)
+    eval_config = tests_to_eval_config(tests)
+
+    return {
+        "tests": tests,
+        "eval_config": eval_config,
+        "message": f"Generated {len(tests)} test cases. Review and add to prompt's eval config.",
+    }

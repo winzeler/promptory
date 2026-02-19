@@ -219,6 +219,61 @@ class GitHubService:
         )
         return result["commit"].sha
 
+    def create_or_update_files(
+        self,
+        repo_full_name: str,
+        files: list[dict],
+        commit_message: str,
+        branch: str = "main",
+        author_name: str | None = None,
+        author_email: str | None = None,
+    ) -> str:
+        """Commit multiple files in a single commit using the Git Trees API.
+
+        Args:
+            files: List of dicts with 'path' and 'content' keys.
+            commit_message: Message for the single commit.
+
+        Returns the new commit SHA.
+        """
+        repo = self.gh.get_repo(repo_full_name)
+        ref = repo.get_git_ref(f"heads/{branch}")
+        base_commit = repo.get_git_commit(ref.object.sha)
+        base_tree = base_commit.tree
+
+        # Build tree elements for all files
+        tree_elements = []
+        for f in files:
+            blob = repo.create_git_blob(f["content"], "utf-8")
+            tree_elements.append({
+                "path": f["path"],
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob.sha,
+            })
+
+        from github import InputGitTreeElement
+        elements = [
+            InputGitTreeElement(
+                path=e["path"], mode=e["mode"], type=e["type"], sha=e["sha"]
+            )
+            for e in tree_elements
+        ]
+        new_tree = repo.create_git_tree(elements, base_tree)
+
+        # Create commit
+        author = None
+        if author_name and author_email:
+            author = InputGitAuthor(author_name, author_email)
+
+        new_commit = repo.create_git_commit(
+            commit_message, new_tree, [base_commit],
+            author=author, committer=author,
+        )
+        ref.edit(new_commit.sha)
+
+        return new_commit.sha
+
     def get_diff(
         self, repo_full_name: str, file_path: str, sha: str, branch: str = "main"
     ) -> str | None:

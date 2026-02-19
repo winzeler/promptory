@@ -46,9 +46,10 @@ async def get_prompt_with_content(
         return _build_prompt_response(prompt, fm, body)
     except Exception as e:
         logger.error("Failed to fetch prompt content from GitHub: %s", e)
-        # Fall back to metadata-only response
+        # Fall back to body stored in SQLite (populated during sync)
         fm = json.loads(prompt.get("front_matter", "{}"))
-        return _build_prompt_response(prompt, fm, "")
+        cached_body = prompt.get("body") or ""
+        return _build_prompt_response(prompt, fm, cached_body)
 
 
 async def get_prompt_by_name_with_content(
@@ -77,7 +78,8 @@ async def get_prompt_by_name_with_content(
     except Exception as e:
         logger.error("Failed to fetch prompt content: %s", e)
         fm = json.loads(prompt.get("front_matter", "{}"))
-        return _build_prompt_response(prompt, fm, "")
+        cached_body = prompt.get("body") or ""
+        return _build_prompt_response(prompt, fm, cached_body)
 
 
 async def create_prompt(

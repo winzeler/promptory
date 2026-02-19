@@ -10,20 +10,95 @@ on:
 jobs:
   eval:
     runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
       - name: Install promptfoo
         run: npm install -g promptfoo
+
+      - name: Install Python dependencies
+        run: pip install -e ".[dev]"
+
       - name: Find changed prompt files
         id: changed
         run: |
-          echo "files=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD -- '*.md' | grep -v README | grep -v CLAUDE | tr '\n' ' ')" >> $GITHUB_OUTPUT
-      - name: Run evaluations
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD -- '*.md' | grep -v README | grep -v CLAUDE | tr '\n' ' ')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+          if [ -z "$FILES" ]; then
+            echo "No prompt files changed."
+          else
+            echo "Changed prompt files: $FILES"
+          fi
+
+      - name: Generate configs and run evaluations
         if: steps.changed.outputs.files != ''
         run: |
-          echo "Changed prompt files: ${{ steps.changed.outputs.files }}"
-          echo "Promptfoo evaluation would run here (Phase 2)"
-          # promptfoo eval --config promptfooconfig.yaml
+          set -e
+          FAILED=0
+
+          for FILE in ${{ steps.changed.outputs.files }}; do
+            echo "::group::Evaluating $FILE"
+
+            # Use Python to parse front-matter and generate promptfoo config
+            python -c "
+          import sys, json, yaml
+          from pathlib import Path
+          from server.services.eval_service import generate_promptfoo_config
+          from server.utils.front_matter import parse_front_matter
+
+          content = Path('$FILE').read_text()
+          fm, body = parse_front_matter(content)
+          eval_cfg = fm.get('eval')
+          if not eval_cfg and not body.strip():
+              print('Skipping: no eval config or empty body')
+              sys.exit(0)
+
+          models = (eval_cfg or {}).get('models', ['gemini-2.0-flash'])
+          config = generate_promptfoo_config(body, models, eval_cfg)
+          Path('/tmp/promptfooconfig.yaml').write_text(yaml.dump(config, default_flow_style=False))
+          print(f'Generated config for {len(models)} model(s)')
+          "
+
+            if [ -f /tmp/promptfooconfig.yaml ]; then
+              promptfoo eval \
+                --config /tmp/promptfooconfig.yaml \
+                --output /tmp/eval-output.json \
+                --no-cache \
+                --no-progress-bar || FAILED=1
+
+              if [ -f /tmp/eval-output.json ]; then
+                echo "Results:"
+                python -c "
+          import json
+          data = json.load(open('/tmp/eval-output.json'))
+          results = data.get('results', [])
+          for r in results:
+              status = 'PASS' if r.get('success', False) else 'FAIL'
+              provider = r.get('provider', {}).get('id', 'unknown')
+              print(f'  {status} - {provider}')
+          "
+              fi
+              rm -f /tmp/promptfooconfig.yaml /tmp/eval-output.json
+            fi
+
+            echo "::endgroup::"
+          done
+
+          if [ $FAILED -ne 0 ]; then
+            echo "::error::One or more evaluations failed"
+            exit 1
+          fi

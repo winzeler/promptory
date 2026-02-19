@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePromptDetail, useUpdatePrompt, usePromptHistory } from "../hooks/usePrompts";
 import { useAutoSave } from "../hooks/useAutoSave";
 import MarkdownEditor from "../components/editor/MarkdownEditor";
 import FrontMatterForm from "../components/editor/FrontMatterForm";
+import yaml from "js-yaml";
 
 export default function PromptEditorPage() {
   const { id } = useParams<{ id: string }>();
@@ -14,6 +15,9 @@ export default function PromptEditorPage() {
   const [body, setBody] = useState<string | null>(null);
   const [frontMatter, setFrontMatter] = useState<Record<string, unknown> | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
+  const [showRawYaml, setShowRawYaml] = useState(false);
+  const [rawYaml, setRawYaml] = useState("");
+  const commitInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize editor state from fetched prompt
   const currentBody = body ?? prompt?.body ?? "";
@@ -29,10 +33,53 @@ export default function PromptEditorPage() {
         front_matter: currentFM,
         body: currentBody,
         commit_message: commitMessage,
+        expected_sha: prompt?.git_sha,
       },
     });
     setCommitMessage("");
-  }, [id, currentFM, currentBody, commitMessage, updateMutation]);
+  }, [id, currentFM, currentBody, commitMessage, prompt?.git_sha, updateMutation]);
+
+  // Keyboard shortcut: Cmd+S / Ctrl+S to focus commit message
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        if (commitMessage.trim()) {
+          handleSave();
+        } else {
+          commitInputRef.current?.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleSave, commitMessage]);
+
+  // Sync raw YAML with front-matter state
+  useEffect(() => {
+    if (showRawYaml) {
+      try {
+        setRawYaml(yaml.dump(currentFM, { lineWidth: -1, noRefs: true }));
+      } catch {
+        setRawYaml("# Error serializing YAML");
+      }
+    }
+  }, [showRawYaml, currentFM]);
+
+  const handleRawYamlChange = useCallback(
+    (value: string) => {
+      setRawYaml(value);
+      try {
+        const parsed = yaml.load(value) as Record<string, unknown>;
+        if (parsed && typeof parsed === "object") {
+          setFrontMatter(parsed);
+        }
+      } catch {
+        // Don't update FM on invalid YAML — let user keep editing
+      }
+    },
+    [],
+  );
 
   if (isLoading) {
     return <div className="text-sm text-gray-500">Loading prompt...</div>;
@@ -69,6 +116,16 @@ export default function PromptEditorPage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowRawYaml(!showRawYaml)}
+            className={`rounded border px-3 py-1.5 text-sm ${
+              showRawYaml
+                ? "border-blue-400 bg-blue-50 text-blue-700"
+                : "border-gray-300 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            {showRawYaml ? "Form" : "YAML"}
+          </button>
           <Link
             to={`/prompts/${id}/preview`}
             className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -81,17 +138,32 @@ export default function PromptEditorPage() {
           >
             Eval
           </Link>
+          <span className="text-xs text-gray-400" title="Cmd+S to save">
+            {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+S
+          </span>
         </div>
       </div>
 
       {/* Split pane */}
       <div className="mt-4 flex flex-1 gap-4 overflow-hidden">
-        {/* Left: Front-matter form */}
+        {/* Left: Front-matter form or raw YAML */}
         <div className="w-80 flex-shrink-0 overflow-auto rounded-lg border border-gray-200 bg-white p-4">
-          <FrontMatterForm
-            value={currentFM}
-            onChange={(fm) => setFrontMatter(fm)}
-          />
+          {showRawYaml ? (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Raw YAML</h3>
+              <textarea
+                value={rawYaml}
+                onChange={(e) => handleRawYamlChange(e.target.value)}
+                className="h-full min-h-[400px] w-full rounded border border-gray-300 p-2 font-mono text-xs"
+                spellCheck={false}
+              />
+            </div>
+          ) : (
+            <FrontMatterForm
+              value={currentFM}
+              onChange={(fm) => setFrontMatter(fm)}
+            />
+          )}
         </div>
 
         {/* Right: Markdown editor */}
@@ -103,6 +175,7 @@ export default function PromptEditorPage() {
           {/* Commit bar */}
           <div className="mt-3 flex items-center gap-2">
             <input
+              ref={commitInputRef}
               type="text"
               placeholder="Commit message..."
               value={commitMessage}
@@ -134,7 +207,7 @@ export default function PromptEditorPage() {
       {history?.items && history.items.length > 0 && (
         <div className="mt-3 flex items-center gap-4 overflow-x-auto border-t border-gray-200 pt-3 text-xs text-gray-500">
           <span className="font-medium">History:</span>
-          {history.items.slice(0, 5).map((commit) => (
+          {history.items.slice(0, 5).map((commit: { sha: string; message: string }) => (
             <span key={commit.sha} className="whitespace-nowrap">
               <code className="text-gray-600">{commit.sha.slice(0, 7)}</code>{" "}
               {commit.message.split("\n")[0].slice(0, 40)}

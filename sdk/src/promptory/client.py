@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import time
 import threading
 
 import httpx
@@ -89,6 +91,10 @@ class PromptClient:
                         logger.warning("API unreachable, returning stale cache for %s", cache_key)
                         return Prompt.from_api_response(entry.data)
                     raise PromptoryError("Failed to connect to Promptory server")
+                # Exponential backoff with jitter: 0.5s, 1s, 2s base
+                delay = (0.5 * (2 ** attempt)) + random.uniform(0, 0.25)
+                logger.debug("Retry %d/%d after %.2fs", attempt + 1, self._retry_count, delay)
+                time.sleep(delay)
 
         if resp.status_code == 304:
             self._cache.refresh_ttl(cache_key)

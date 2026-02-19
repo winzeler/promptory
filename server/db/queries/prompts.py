@@ -60,8 +60,15 @@ async def list_prompts(
     params: list = [app_id]
 
     if search:
-        conditions.append("(name LIKE ? OR description LIKE ?)")
-        params.extend([f"%{search}%", f"%{search}%"])
+        # Try FTS5 first, fall back to LIKE
+        try:
+            async with db.execute("SELECT 1 FROM prompts_fts LIMIT 0"):
+                pass
+            conditions.append("rowid IN (SELECT rowid FROM prompts_fts WHERE prompts_fts MATCH ?)")
+            params.append(f'"{search}"*')
+        except Exception:
+            conditions.append("(name LIKE ? OR description LIKE ?)")
+            params.extend([f"%{search}%", f"%{search}%"])
     if domain:
         conditions.append("domain = ?")
         params.append(domain)
@@ -99,8 +106,8 @@ async def upsert_prompt(db: aiosqlite.Connection, data: dict) -> None:
            (id, app_id, name, file_path, domain, description, type,
             modality_input, modality_output, default_model, environment,
             tags, active, version, git_sha, front_matter, body_hash,
-            last_synced_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            body, last_synced_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
            ON CONFLICT(id) DO UPDATE SET
             name=excluded.name, file_path=excluded.file_path, domain=excluded.domain,
             description=excluded.description, type=excluded.type,
@@ -108,8 +115,8 @@ async def upsert_prompt(db: aiosqlite.Connection, data: dict) -> None:
             default_model=excluded.default_model, environment=excluded.environment,
             tags=excluded.tags, active=excluded.active, version=excluded.version,
             git_sha=excluded.git_sha, front_matter=excluded.front_matter,
-            body_hash=excluded.body_hash, last_synced_at=datetime('now'),
-            updated_at=datetime('now')
+            body_hash=excluded.body_hash, body=excluded.body,
+            last_synced_at=datetime('now'), updated_at=datetime('now')
         """,
         (
             data["id"], data["app_id"], data["name"], data["file_path"],
@@ -118,7 +125,7 @@ async def upsert_prompt(db: aiosqlite.Connection, data: dict) -> None:
             data.get("default_model"), data.get("environment", "development"),
             data.get("tags", "[]"), 1 if data.get("active", True) else 0,
             data.get("version"), data.get("git_sha"), data.get("front_matter", "{}"),
-            data.get("body_hash"),
+            data.get("body_hash"), data.get("body"),
         ),
     )
     await db.commit()

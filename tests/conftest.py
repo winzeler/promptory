@@ -17,7 +17,10 @@ import bcrypt
 # Database fixtures
 # ---------------------------------------------------------------------------
 
-MIGRATION_SQL = (Path(__file__).resolve().parent.parent / "server" / "db" / "migrations" / "001_initial.sql").read_text()
+_migrations_dir = Path(__file__).resolve().parent.parent / "server" / "db" / "migrations"
+MIGRATION_SQL = "\n".join(
+    f.read_text() for f in sorted(_migrations_dir.glob("*.sql"))
+)
 
 # Stable IDs for seed data
 ORG_ID = "org-test-001"
@@ -58,10 +61,10 @@ async def db():
         (APP_ID, ORG_ID, "testorg/testapp", "Test App"),
     )
     await conn.execute(
-        "INSERT INTO prompts (id, app_id, name, file_path, domain, description, type, front_matter, body_hash, version, git_sha, active) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO prompts (id, app_id, name, file_path, domain, description, type, front_matter, body_hash, body, version, git_sha, active) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (PROMPT_ID, APP_ID, "greeting", "prompts/greeting.md", "test", "A greeting prompt", "chat",
-         FRONT_MATTER, "abc123", "1.0", "deadbeef", 1),
+         FRONT_MATTER, "abc123", "Hello {{ name }}, welcome to {{ place }}.", "1.0", "deadbeef", 1),
     )
     await conn.execute(
         "INSERT INTO users (id, github_id, github_login, display_name) VALUES (?, ?, ?, ?)",

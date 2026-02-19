@@ -105,6 +105,7 @@ async def _index_prompt_file(
         "git_sha": git_sha,
         "front_matter": front_matter_to_json(fm),
         "body_hash": body_hash(body),
+        "body": body,
     }
 
     await prompt_queries.upsert_prompt(db, data)

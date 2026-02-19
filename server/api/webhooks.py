@@ -18,11 +18,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
 
+async def _check_delivery_idempotency(db, delivery_id: str, app_id: str) -> bool:
+    """Check if this webhook delivery has already been processed. Returns True if duplicate."""
+    if not delivery_id:
+        return False
+    async with db.execute(
+        "SELECT 1 FROM webhook_deliveries WHERE delivery_id = ?", (delivery_id,)
+    ) as cursor:
+        if await cursor.fetchone():
+            return True
+    return False
+
+
+async def _record_delivery(db, delivery_id: str, app_id: str, event_type: str) -> None:
+    """Record a processed webhook delivery for idempotency."""
+    if not delivery_id:
+        return
+    try:
+        await db.execute(
+            "INSERT OR IGNORE INTO webhook_deliveries (delivery_id, app_id, event_type) VALUES (?, ?, ?)",
+            (delivery_id, app_id, event_type),
+        )
+        await db.commit()
+    except Exception:
+        pass  # Best-effort — don't fail the webhook if tracking fails
+
+
 @router.post("/github")
 async def github_webhook(request: Request):
     """Receive GitHub push events and trigger re-indexing of changed .md files."""
     body = await request.body()
     signature = request.headers.get("x-hub-signature-256", "")
+    delivery_id = request.headers.get("x-github-delivery", "")
 
     # Parse payload
     try:
@@ -45,6 +72,11 @@ async def github_webhook(request: Request):
             logger.info("Webhook for unknown repo: %s", repo_full_name)
             return {"ok": True, "message": "No matching application"}
         app = dict(row)
+
+    # Check idempotency — skip if already processed
+    if await _check_delivery_idempotency(db, delivery_id, app["id"]):
+        logger.info("Duplicate webhook delivery %s, skipping", delivery_id)
+        return {"ok": True, "message": "Already processed"}
 
     # Verify webhook signature
     webhook_secret = app.get("webhook_secret")
@@ -117,6 +149,9 @@ async def github_webhook(request: Request):
 
     # Invalidate cache for affected prompts
     prompt_cache.clear()
+
+    # Record delivery for idempotency
+    await _record_delivery(db, delivery_id, app["id"], event)
 
     logger.info("Webhook processed: %d files synced, %d removed", synced, len(removed_files))
     return {"ok": True, "synced": synced, "removed": len(removed_files)}

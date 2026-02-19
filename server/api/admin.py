@@ -203,6 +203,24 @@ async def update_prompt_endpoint(prompt_id: str, request: Request):
     body = await request.json()
     gh = _get_github_for_user(user)
 
+    # Concurrent edit detection: if client provides expected_sha, verify it matches
+    expected_sha = body.get("expected_sha")
+    if expected_sha:
+        prompt = await prompt_queries.get_prompt(db, prompt_id)
+        if prompt and prompt.get("git_sha") and prompt["git_sha"] != expected_sha:
+            gh.close()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": {
+                        "code": "CONFLICT",
+                        "message": "Prompt was modified by another user. Refresh and try again.",
+                        "current_sha": prompt["git_sha"],
+                        "expected_sha": expected_sha,
+                    }
+                },
+            )
+
     try:
         result = await update_prompt(db, prompt_id, body, gh, user)
     except ValueError as e:
