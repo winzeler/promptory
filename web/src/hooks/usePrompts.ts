@@ -11,6 +11,13 @@ import {
   syncApp,
   fetchTTSStatus,
   previewTTS,
+  fetchRequestsPerDay,
+  fetchCacheHitRate,
+  fetchTopPrompts,
+  fetchUsageByKey,
+  fetchPromptContentAtSha,
+  batchUpdatePrompts,
+  batchDeletePrompts,
 } from "../api/prompts";
 
 export function useOrgs() {
@@ -98,5 +105,67 @@ export function useTTSPreview() {
   return useMutation({
     mutationFn: ({ promptId, data }: { promptId: string; data: { variables: Record<string, unknown>; tts_config?: Record<string, unknown> } }) =>
       previewTTS(promptId, data),
+  });
+}
+
+// ── Analytics hooks ──
+
+export function useRequestsPerDay(appId?: string, days = 30) {
+  return useQuery({
+    queryKey: ["analytics", "requests-per-day", appId, days],
+    queryFn: () => fetchRequestsPerDay(appId, days),
+    staleTime: 60_000,
+  });
+}
+
+export function useCacheHitRate(appId?: string, days = 30) {
+  return useQuery({
+    queryKey: ["analytics", "cache-hit-rate", appId, days],
+    queryFn: () => fetchCacheHitRate(appId, days),
+    staleTime: 60_000,
+  });
+}
+
+export function useTopPrompts(appId?: string, days = 30, limit = 10) {
+  return useQuery({
+    queryKey: ["analytics", "top-prompts", appId, days, limit],
+    queryFn: () => fetchTopPrompts(appId, days, limit),
+    staleTime: 60_000,
+  });
+}
+
+export function useUsageByKey(days = 30, limit = 10) {
+  return useQuery({
+    queryKey: ["analytics", "usage-by-key", days, limit],
+    queryFn: () => fetchUsageByKey(days, limit),
+    staleTime: 60_000,
+  });
+}
+
+// ── Prompt content at SHA (for diff viewer) ──
+
+export function usePromptContentAtSha(promptId: string | null, sha: string | null) {
+  return useQuery({
+    queryKey: ["prompt-at-sha", promptId, sha],
+    queryFn: () => fetchPromptContentAtSha(promptId!, sha!),
+    enabled: !!promptId && !!sha,
+  });
+}
+
+// ── Batch operations ──
+
+export function useBatchUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: batchUpdatePrompts,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["prompts"] }),
+  });
+}
+
+export function useBatchDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: batchDeletePrompts,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["prompts"] }),
   });
 }

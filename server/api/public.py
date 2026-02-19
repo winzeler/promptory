@@ -12,7 +12,7 @@ from server.db.database import get_db
 from server.db.queries import prompts as prompt_queries
 from server.services.prompt_service import get_prompt_with_content, get_prompt_by_name_with_content
 from server.services.github_service import GitHubService
-from server.services.render_service import render_prompt
+from server.services.render_service import render_prompt, render_prompt_with_includes
 from server.services.cache_service import prompt_cache
 from server.utils.crypto import decrypt
 
@@ -191,9 +191,15 @@ async def render_prompt_endpoint(prompt_id: str, request: Request):
 
     fm = json.loads(prompt.get("front_matter", "{}"))
     template_body = fm.get("_body", "")
+    includes = fm.get("includes", [])
 
     try:
-        rendered = render_prompt(template_body, variables)
+        if includes:
+            rendered = await render_prompt_with_includes(
+                template_body, variables, db, prompt["app_id"]
+            )
+        else:
+            rendered = render_prompt(template_body, variables)
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": {"code": "RENDER_ERROR", "message": str(e)}})
 

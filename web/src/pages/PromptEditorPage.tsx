@@ -1,10 +1,17 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { usePromptDetail, useUpdatePrompt, usePromptHistory } from "../hooks/usePrompts";
+import { usePromptDetail, useUpdatePrompt, usePromptHistory, usePromptContentAtSha } from "../hooks/usePrompts";
 import { useAutoSave } from "../hooks/useAutoSave";
+import { exportPrompty } from "../api/prompts";
 import MarkdownEditor from "../components/editor/MarkdownEditor";
 import FrontMatterForm from "../components/editor/FrontMatterForm";
+import DiffViewer from "../components/editor/DiffViewer";
 import yaml from "js-yaml";
+
+const PROMOTION_MAP: Record<string, string> = {
+  development: "staging",
+  staging: "production",
+};
 
 export default function PromptEditorPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,11 +24,20 @@ export default function PromptEditorPage() {
   const [commitMessage, setCommitMessage] = useState("");
   const [showRawYaml, setShowRawYaml] = useState(false);
   const [rawYaml, setRawYaml] = useState("");
+  const [showDiff, setShowDiff] = useState(false);
+  const [diffTargetSha, setDiffTargetSha] = useState<string | null>(null);
   const commitInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize editor state from fetched prompt
   const currentBody = body ?? prompt?.body ?? "";
   const currentFM = frontMatter ?? (prompt ? extractFrontMatter(prompt) : {});
+  const currentEnv = (currentFM.environment as string) ?? prompt?.environment ?? "development";
+
+  // Fetch content at target SHA for diff viewer
+  const { data: shaContent } = usePromptContentAtSha(
+    showDiff ? (id ?? null) : null,
+    diffTargetSha
+  );
 
   useAutoSave(id ?? "new", { body: currentBody, frontMatter: currentFM });
 
@@ -81,6 +97,38 @@ export default function PromptEditorPage() {
     [],
   );
 
+  const handlePromote = useCallback(() => {
+    const nextEnv = PROMOTION_MAP[currentEnv];
+    if (!nextEnv || !id) return;
+    const newFM = { ...currentFM, environment: nextEnv };
+    setFrontMatter(newFM);
+    updateMutation.mutate({
+      id,
+      data: {
+        front_matter: newFM,
+        body: currentBody,
+        commit_message: `Promote ${prompt?.name ?? id} to ${nextEnv}`,
+        expected_sha: prompt?.git_sha,
+      },
+    });
+  }, [currentEnv, currentFM, currentBody, id, prompt, updateMutation]);
+
+  const handleExportPrompty = useCallback(async () => {
+    if (!id) return;
+    try {
+      const content = await exportPrompty(id);
+      const blob = new Blob([content], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${prompt?.name ?? "prompt"}.prompty`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Export failed silently
+    }
+  }, [id, prompt?.name]);
+
   if (isLoading) {
     return <div className="text-sm text-gray-500">Loading prompt...</div>;
   }
@@ -88,6 +136,8 @@ export default function PromptEditorPage() {
   if (!prompt) {
     return <div className="text-sm text-red-500">Prompt not found</div>;
   }
+
+  const diffBefore = shaContent?.body ?? prompt.body;
 
   return (
     <div className="flex h-full flex-col">
@@ -107,15 +157,43 @@ export default function PromptEditorPage() {
           )}
           <span
             className={`rounded px-2 py-0.5 text-xs font-medium ${
-              prompt.environment === "production"
+              currentEnv === "production"
                 ? "bg-green-100 text-green-700"
-                : "bg-gray-100 text-gray-700"
+                : currentEnv === "staging"
+                  ? "bg-yellow-100 text-yellow-700"
+                  : "bg-gray-100 text-gray-700"
             }`}
           >
-            {prompt.environment}
+            {currentEnv}
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Promote button */}
+          {PROMOTION_MAP[currentEnv] && (
+            <button
+              onClick={handlePromote}
+              disabled={updateMutation.isPending}
+              className="rounded border border-green-400 bg-green-50 px-3 py-1.5 text-sm text-green-700 hover:bg-green-100 disabled:opacity-50"
+            >
+              Promote to {PROMOTION_MAP[currentEnv]}
+            </button>
+          )}
+          {/* Diff toggle */}
+          <button
+            onClick={() => {
+              setShowDiff(!showDiff);
+              if (!showDiff && history?.items?.[0]) {
+                setDiffTargetSha(history.items[0].sha);
+              }
+            }}
+            className={`rounded border px-3 py-1.5 text-sm ${
+              showDiff
+                ? "border-orange-400 bg-orange-50 text-orange-700"
+                : "border-gray-300 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            Diff
+          </button>
           <button
             onClick={() => setShowRawYaml(!showRawYaml)}
             className={`rounded border px-3 py-1.5 text-sm ${
@@ -146,11 +224,35 @@ export default function PromptEditorPage() {
           >
             Eval
           </Link>
+          <button
+            onClick={handleExportPrompty}
+            className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+          >
+            Export .prompty
+          </button>
           <span className="text-xs text-gray-400" title="Cmd+S to save">
             {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+S
           </span>
         </div>
       </div>
+
+      {/* Diff SHA selector */}
+      {showDiff && history?.items && (
+        <div className="mt-2 flex items-center gap-2 text-sm">
+          <span className="text-gray-500">Compare with:</span>
+          <select
+            value={diffTargetSha ?? ""}
+            onChange={(e) => setDiffTargetSha(e.target.value || null)}
+            className="rounded border border-gray-300 px-2 py-1 text-xs"
+          >
+            {history.items.map((c: { sha: string; message: string }) => (
+              <option key={c.sha} value={c.sha}>
+                {c.sha.slice(0, 7)} — {c.message.split("\n")[0].slice(0, 40)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Split pane */}
       <div className="mt-4 flex flex-1 gap-4 overflow-hidden">
@@ -174,10 +276,21 @@ export default function PromptEditorPage() {
           )}
         </div>
 
-        {/* Right: Markdown editor */}
+        {/* Right: Editor or Diff viewer */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden rounded-lg border border-gray-200">
-            <MarkdownEditor value={currentBody} onChange={setBody} />
+            {showDiff ? (
+              <div className="h-full overflow-auto p-4">
+                <DiffViewer
+                  before={diffBefore}
+                  after={currentBody}
+                  labelBefore={diffTargetSha ? `${diffTargetSha.slice(0, 7)}` : "Last commit"}
+                  labelAfter="Current"
+                />
+              </div>
+            ) : (
+              <MarkdownEditor value={currentBody} onChange={setBody} />
+            )}
           </div>
 
           {/* Commit bar */}

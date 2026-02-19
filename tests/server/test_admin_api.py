@@ -418,3 +418,168 @@ async def test_tts_preview_prompt_not_found(admin_client):
         json={"variables": {}, "tts_config": {}},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Batch operations
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_batch_update_empty_ids(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/batch",
+        json={"prompt_ids": [], "field": "environment", "value": "staging"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_batch_update_missing_field(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/batch",
+        json={"prompt_ids": [PROMPT_ID]},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_batch_update_invalid_field(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/batch",
+        json={"prompt_ids": [PROMPT_ID], "field": "invalid_field", "value": "x"},
+    )
+    assert resp.status_code == 400
+    assert "field must be one of" in resp.json()["detail"]["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_batch_update_prompt_not_found(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/batch",
+        json={"prompt_ids": ["nonexistent-id"], "field": "environment", "value": "staging"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_empty_ids(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/batch-delete",
+        json={"prompt_ids": []},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_not_found(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/batch-delete",
+        json={"prompt_ids": ["nonexistent"]},
+    )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Analytics endpoints (response shape verification)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_analytics_requests_per_day(admin_client):
+    resp = await admin_client.get("/api/v1/admin/analytics/requests-per-day")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_analytics_cache_hit_rate(admin_client):
+    resp = await admin_client.get("/api/v1/admin/analytics/cache-hit-rate")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_analytics_latency(admin_client):
+    resp = await admin_client.get("/api/v1/admin/analytics/latency")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_analytics_top_prompts(admin_client):
+    resp = await admin_client.get("/api/v1/admin/analytics/top-prompts")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_analytics_usage_by_key(admin_client):
+    resp = await admin_client.get("/api/v1/admin/analytics/usage-by-key")
+    assert resp.status_code == 200
+    assert "items" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Prompty export/import endpoints
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_export_prompty(admin_client):
+    resp = await admin_client.get(f"/api/v1/admin/prompts/{PROMPT_ID}/export/prompty")
+    assert resp.status_code == 200
+    text = resp.text
+    assert "---" in text
+    assert "greeting" in text.lower() or "name:" in text
+
+
+@pytest.mark.asyncio
+async def test_export_prompty_not_found(admin_client):
+    resp = await admin_client.get("/api/v1/admin/prompts/nonexistent/export/prompty")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_import_prompty_missing_fields(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/import/prompty",
+        json={"content": "---\nname: test\n---\nBody"},
+    )
+    assert resp.status_code == 400  # Missing app_id
+
+
+@pytest.mark.asyncio
+async def test_import_prompty_no_name(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/import/prompty",
+        json={"content": "---\ndescription: no name\n---\nBody", "app_id": APP_ID},
+    )
+    assert resp.status_code == 400
+    assert "name" in resp.json()["detail"]["error"]["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Get prompt at SHA
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_prompt_at_sha_not_found(admin_client):
+    resp = await admin_client.get("/api/v1/admin/prompts/nonexistent/at/abc123")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_prompt_at_sha(admin_client):
+    with patch("server.api.admin._get_github_for_user") as mock_gh:
+        mock_service = MagicMock()
+        mock_service.get_file_content_at_sha.return_value = (
+            "---\nname: greeting\nversion: '1.0'\n---\nHello {{ name }}!",
+            "blob-sha-123",
+        )
+        mock_gh.return_value = mock_service
+
+        resp = await admin_client.get(f"/api/v1/admin/prompts/{PROMPT_ID}/at/abc123")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["sha"] == "abc123"
+        assert "body" in data
+        assert "front_matter" in data

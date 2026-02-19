@@ -149,3 +149,115 @@ export async function previewTTS(
   }
   return resp.blob();
 }
+
+// ── Analytics ──
+
+export interface AnalyticsItem {
+  day?: string;
+  count?: number;
+  total?: number;
+  hits?: number;
+  hit_rate?: number;
+  avg_ms?: number;
+  min_ms?: number;
+  max_ms?: number;
+  sample_count?: number;
+  prompt_id?: string;
+  prompt_name?: string;
+  request_count?: number;
+  avg_latency_ms?: number;
+  cache_rate?: number;
+  api_key_id?: string;
+  key_name?: string;
+}
+
+export async function fetchRequestsPerDay(
+  appId?: string,
+  days = 30
+): Promise<{ items: AnalyticsItem[] }> {
+  const params = new URLSearchParams({ days: String(days) });
+  if (appId) params.set("app_id", appId);
+  return apiFetch(`/api/v1/admin/analytics/requests-per-day?${params}`);
+}
+
+export async function fetchCacheHitRate(
+  appId?: string,
+  days = 30
+): Promise<{ items: AnalyticsItem[] }> {
+  const params = new URLSearchParams({ days: String(days) });
+  if (appId) params.set("app_id", appId);
+  return apiFetch(`/api/v1/admin/analytics/cache-hit-rate?${params}`);
+}
+
+export async function fetchTopPrompts(
+  appId?: string,
+  days = 30,
+  limit = 10
+): Promise<{ items: AnalyticsItem[] }> {
+  const params = new URLSearchParams({ days: String(days), limit: String(limit) });
+  if (appId) params.set("app_id", appId);
+  return apiFetch(`/api/v1/admin/analytics/top-prompts?${params}`);
+}
+
+export async function fetchUsageByKey(
+  days = 30,
+  limit = 10
+): Promise<{ items: AnalyticsItem[] }> {
+  const params = new URLSearchParams({ days: String(days), limit: String(limit) });
+  return apiFetch(`/api/v1/admin/analytics/usage-by-key?${params}`);
+}
+
+// ── Prompt content at SHA (for diff viewer) ──
+
+export async function fetchPromptContentAtSha(
+  promptId: string,
+  sha: string
+): Promise<{ sha: string; front_matter: Record<string, unknown>; body: string; raw: string }> {
+  return apiFetch(`/api/v1/admin/prompts/${promptId}/at/${sha}`);
+}
+
+// ── Batch operations ──
+
+export async function batchUpdatePrompts(data: {
+  prompt_ids: string[];
+  action?: string;
+  field: string;
+  value: unknown;
+  commit_message?: string;
+}): Promise<{ ok: boolean; updated: number; commit_sha: string }> {
+  return apiFetch("/api/v1/admin/prompts/batch", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function batchDeletePrompts(data: {
+  prompt_ids: string[];
+  commit_message?: string;
+}): Promise<{ ok: boolean; deleted: number }> {
+  return apiFetch("/api/v1/admin/prompts/batch-delete", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Prompty import/export ──
+
+export async function exportPrompty(promptId: string): Promise<string> {
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+  const resp = await fetch(`${API_BASE}/api/v1/admin/prompts/${promptId}/export/prompty`, {
+    credentials: "include",
+  });
+  if (!resp.ok) throw new Error("Export failed");
+  return resp.text();
+}
+
+export async function importPrompty(
+  appId: string,
+  content: string
+): Promise<unknown> {
+  return apiFetch("/api/v1/admin/prompts/import/prompty", {
+    method: "POST",
+    body: JSON.stringify({ app_id: appId, content }),
+  });
+}

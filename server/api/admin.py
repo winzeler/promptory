@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from server.db.database import get_db
 from server.db.queries import organizations as org_queries
 from server.db.queries import applications as app_queries
 from server.db.queries import prompts as prompt_queries
+from server.db.queries import analytics as analytics_queries
 from server.services.github_service import GitHubService
 from server.services.prompt_service import (
     create_prompt,
@@ -19,7 +20,7 @@ from server.services.prompt_service import (
     delete_prompt_file,
     get_prompt_with_content,
 )
-from server.services.render_service import render_prompt
+from server.services.render_service import render_prompt, render_prompt_with_includes
 from server.services.tts_service import (
     synthesize_tts,
     is_tts_configured,
@@ -29,6 +30,8 @@ from server.services.tts_service import (
 from server.services.sync_service import sync_app
 from server.services.cache_service import prompt_cache
 from server.utils.crypto import decrypt
+from server.utils.front_matter import parse_prompt_file, serialize_prompt_file
+from server.utils.prompty_converter import md_to_prompty, prompty_to_md
 
 logger = logging.getLogger(__name__)
 
@@ -304,6 +307,33 @@ async def get_prompt_diff(prompt_id: str, sha: str, request: Request):
     return {"diff": diff}
 
 
+@router.get("/prompts/{prompt_id}/at/{sha}")
+async def get_prompt_at_sha(prompt_id: str, sha: str, request: Request):
+    """Fetch full prompt content at a specific git commit SHA."""
+    user = _require_user(request)
+    db = await get_db()
+    prompt = await prompt_queries.get_prompt(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}})
+
+    app = await app_queries.get_app(db, prompt["app_id"])
+    if not app:
+        raise HTTPException(status_code=404, detail={"error": {"code": "APP_NOT_FOUND", "message": "App not found"}})
+
+    gh = _get_github_for_user(user)
+    try:
+        content, blob_sha = gh.get_file_content_at_sha(
+            app["github_repo"], prompt["file_path"], sha
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": str(e)}})
+    finally:
+        gh.close()
+
+    fm, body = parse_prompt_file(content)
+    return {"sha": sha, "front_matter": fm, "body": body, "raw": content}
+
+
 # ── Rollback & Toggle ──
 
 @router.post("/prompts/{prompt_id}/rollback")
@@ -400,6 +430,269 @@ async def toggle_prompt_active(prompt_id: str, request: Request):
     return {"ok": True, "active": active}
 
 
+# ── Batch Operations ──
+
+@router.post("/prompts/batch")
+async def batch_update_prompts(request: Request):
+    """Batch update fields across multiple prompts in a single commit."""
+    user = _require_user(request)
+    db = await get_db()
+    body = await request.json()
+
+    prompt_ids = body.get("prompt_ids", [])
+    action = body.get("action", "update_field")
+    field = body.get("field")
+    value = body.get("value")
+    commit_message = body.get("commit_message", "Batch update prompts")
+
+    if not prompt_ids:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "prompt_ids is required"}})
+    if action == "update_field" and not field:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "field is required for update_field action"}})
+
+    allowed_fields = {"environment", "tags", "model.default", "active"}
+    if field and field not in allowed_fields:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": f"field must be one of: {', '.join(sorted(allowed_fields))}"}})
+
+    # Validate all prompts exist and belong to the same app
+    prompts = []
+    app_ids = set()
+    for pid in prompt_ids:
+        p = await prompt_queries.get_prompt(db, pid)
+        if not p:
+            raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": f"Prompt not found: {pid}"}})
+        prompts.append(p)
+        app_ids.add(p["app_id"])
+
+    if len(app_ids) > 1:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "All prompts must belong to the same application"}})
+
+    app_id = app_ids.pop()
+    app = await app_queries.get_app(db, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail={"error": {"code": "APP_NOT_FOUND", "message": "App not found"}})
+
+    gh = _get_github_for_user(user)
+    try:
+        files_to_update = []
+        for p in prompts:
+            content, _ = gh.get_file_content(
+                app["github_repo"], p["file_path"],
+                branch=app.get("default_branch", "main"),
+            )
+            fm, body_text = parse_prompt_file(content)
+
+            # Apply field update
+            if field == "environment":
+                fm["environment"] = value
+            elif field == "tags":
+                fm["tags"] = value
+            elif field == "model.default":
+                if "model" not in fm or not isinstance(fm["model"], dict):
+                    fm["model"] = {}
+                fm["model"]["default"] = value
+            elif field == "active":
+                fm["active"] = value
+
+            new_content = serialize_prompt_file(fm, body_text)
+            files_to_update.append({"path": p["file_path"], "content": new_content})
+
+        commit_sha = gh.create_or_update_files(
+            app["github_repo"],
+            files_to_update,
+            commit_message=commit_message,
+            branch=app.get("default_branch", "main"),
+            author_name=user.get("name") or user.get("login"),
+            author_email=user.get("email"),
+        )
+    finally:
+        gh.close()
+
+    # Re-sync affected prompts
+    gh2 = _get_github_for_user(user)
+    try:
+        await sync_app(db, app, gh2)
+    finally:
+        gh2.close()
+
+    # Invalidate caches
+    for pid in prompt_ids:
+        prompt_cache.invalidate(f"id:{pid}")
+
+    return {"ok": True, "updated": len(prompts), "commit_sha": commit_sha}
+
+
+@router.post("/prompts/batch-delete")
+async def batch_delete_prompts(request: Request):
+    """Delete multiple prompts in a single commit."""
+    user = _require_user(request)
+    db = await get_db()
+    body = await request.json()
+
+    prompt_ids = body.get("prompt_ids", [])
+    commit_message = body.get("commit_message", "Batch delete prompts")
+
+    if not prompt_ids:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "prompt_ids is required"}})
+
+    # Validate all prompts exist and belong to same app
+    prompts = []
+    app_ids = set()
+    for pid in prompt_ids:
+        p = await prompt_queries.get_prompt(db, pid)
+        if not p:
+            raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": f"Prompt not found: {pid}"}})
+        prompts.append(p)
+        app_ids.add(p["app_id"])
+
+    if len(app_ids) > 1:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "All prompts must belong to the same application"}})
+
+    app_id = app_ids.pop()
+    app = await app_queries.get_app(db, app_id)
+    if not app:
+        raise HTTPException(status_code=404)
+
+    gh = _get_github_for_user(user)
+    try:
+        # Use Git Trees API to delete all files in one commit
+        # (set content to empty blob with mode 100644 won't work — use delete_file per file for now,
+        #  or better: create tree without these paths)
+        for p in prompts:
+            _, file_sha = gh.get_file_content(
+                app["github_repo"], p["file_path"],
+                branch=app.get("default_branch", "main"),
+            )
+            gh.delete_file(
+                app["github_repo"], p["file_path"],
+                commit_message=commit_message,
+                sha=file_sha,
+                branch=app.get("default_branch", "main"),
+            )
+    finally:
+        gh.close()
+
+    # Delete from DB
+    for p in prompts:
+        await prompt_queries.delete_prompt(db, p["id"])
+        prompt_cache.invalidate(f"id:{p['id']}")
+
+    return {"ok": True, "deleted": len(prompts)}
+
+
+# ── Prompty Import/Export ──
+
+@router.get("/prompts/{prompt_id}/export/prompty")
+async def export_prompty(prompt_id: str, request: Request):
+    """Export a prompt in .prompty format."""
+    user = _require_user(request)
+    db = await get_db()
+
+    prompt = await prompt_queries.get_prompt(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}})
+
+    fm = json.loads(prompt.get("front_matter", "{}"))
+    body = fm.pop("_body", "")
+
+    # Ensure name is in front-matter for export
+    if not fm.get("name"):
+        fm["name"] = prompt["name"]
+
+    prompty_content = md_to_prompty(fm, body)
+    filename = f"{prompt['name']}.prompty"
+
+    return PlainTextResponse(
+        content=prompty_content,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/prompts/import/prompty")
+async def import_prompty(request: Request):
+    """Import a .prompty file and create a .md prompt in GitHub."""
+    user = _require_user(request)
+    db = await get_db()
+    body = await request.json()
+
+    prompty_content = body.get("content")
+    app_id = body.get("app_id")
+    if not prompty_content or not app_id:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "content and app_id are required"}})
+
+    app = await app_queries.get_app(db, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail={"error": {"code": "APP_NOT_FOUND", "message": "App not found"}})
+
+    fm, prompt_body = prompty_to_md(prompty_content)
+
+    # Use name from front-matter or generate one
+    name = fm.get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "Prompty file must have a name field"}})
+
+    # Build create payload
+    create_data = {
+        "app_id": app_id,
+        "name": name,
+        "body": prompt_body,
+        "front_matter": fm,
+        "commit_message": f"Import {name} from .prompty",
+    }
+
+    gh = _get_github_for_user(user)
+    try:
+        result = await create_prompt(db, create_data, gh, user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": str(e)}})
+    finally:
+        gh.close()
+
+    return result
+
+
+# ── Analytics ──
+
+@router.get("/analytics/requests-per-day")
+async def analytics_requests_per_day(request: Request, app_id: str | None = None, days: int = 30):
+    _require_user(request)
+    db = await get_db()
+    data = await analytics_queries.requests_per_day(db, app_id=app_id, days=days)
+    return {"items": data}
+
+
+@router.get("/analytics/cache-hit-rate")
+async def analytics_cache_hit_rate(request: Request, app_id: str | None = None, days: int = 30):
+    _require_user(request)
+    db = await get_db()
+    data = await analytics_queries.cache_hit_rate(db, app_id=app_id, days=days)
+    return {"items": data}
+
+
+@router.get("/analytics/latency")
+async def analytics_latency(request: Request, app_id: str | None = None, days: int = 7):
+    _require_user(request)
+    db = await get_db()
+    data = await analytics_queries.latency_percentiles(db, app_id=app_id, days=days)
+    return {"items": data}
+
+
+@router.get("/analytics/top-prompts")
+async def analytics_top_prompts(request: Request, app_id: str | None = None, days: int = 30, limit: int = 10):
+    _require_user(request)
+    db = await get_db()
+    data = await analytics_queries.top_prompts(db, app_id=app_id, days=days, limit=limit)
+    return {"items": data}
+
+
+@router.get("/analytics/usage-by-key")
+async def analytics_usage_by_key(request: Request, days: int = 30, limit: int = 10):
+    _require_user(request)
+    db = await get_db()
+    data = await analytics_queries.usage_by_api_key(db, days=days, limit=limit)
+    return {"items": data}
+
+
 # ── TTS ──
 
 @router.get("/tts/status")
@@ -427,10 +720,18 @@ async def tts_preview(prompt_id: str, request: Request):
     variables = body_data.get("variables", {})
     tts_config = body_data.get("tts_config", {})
 
-    # Render the prompt body with variables
+    # Render the prompt body with variables (use includes if prompt has them)
     prompt_body = prompt.get("body", "")
+    fm = json.loads(prompt.get("front_matter", "{}"))
+    includes = fm.get("includes", [])
+
     try:
-        rendered_body = render_prompt(prompt_body, variables)
+        if includes:
+            rendered_body = await render_prompt_with_includes(
+                prompt_body, variables, db, prompt["app_id"]
+            )
+        else:
+            rendered_body = render_prompt(prompt_body, variables)
     except ValueError as e:
         raise HTTPException(
             status_code=400,
