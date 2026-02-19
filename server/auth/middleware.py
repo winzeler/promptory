@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import Request, HTTPException
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.db.database import get_db
@@ -62,10 +63,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # For public prompt API paths, require auth
         if path.startswith(API_KEY_PATHS_PREFIX):
-            raise HTTPException(status_code=401, detail={"error": {"code": "UNAUTHORIZED", "message": "Valid API key required"}})
+            return JSONResponse(status_code=401, content={"error": {"code": "UNAUTHORIZED", "message": "Valid API key required"}})
 
         # For admin paths, require session auth
         if path.startswith("/api/v1/admin"):
-            raise HTTPException(status_code=401, detail={"error": {"code": "UNAUTHORIZED", "message": "Authentication required. Please sign in with GitHub."}})
+            return JSONResponse(status_code=401, content={"error": {"code": "UNAUTHORIZED", "message": "Authentication required. Please sign in with GitHub."}})
 
         return await call_next(request)

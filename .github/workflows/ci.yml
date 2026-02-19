@@ -32,8 +32,27 @@ jobs:
         with:
           node-version: "20"
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Type check
         run: npx tsc --noEmit
       - name: Build
         run: npm run build
+
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API container
+        run: |
+          if command -v podman &>/dev/null; then
+            podman build -t promptory -f Containerfile .
+          else
+            docker build -t promptory -f Containerfile .
+          fi
+      - name: Build Web container
+        run: |
+          if command -v podman &>/dev/null; then
+            podman build -t promptory-web -f web/Containerfile web/
+          else
+            docker build -t promptory-web -f web/Containerfile web/
+          fi

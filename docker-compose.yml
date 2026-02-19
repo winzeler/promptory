@@ -1,8 +1,10 @@
+# Podman-first: `podman-compose up` or `podman compose up`
+# Docker Compose also supported: `docker compose up`
 services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     ports:
       - "8000:8000"
     volumes:
@@ -14,7 +16,7 @@ services:
   web:
     build:
       context: ./web
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     ports:
       - "5173:5173"
     volumes:

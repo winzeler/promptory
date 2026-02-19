@@ -57,6 +57,41 @@ class PromptCache:
         with self._lock:
             self._cache.pop(key, None)
 
+    def invalidate_by_prefix(self, prefix: str) -> int:
+        """Invalidate all entries whose key starts with the given prefix. Returns count removed."""
+        with self._lock:
+            to_remove = [k for k in self._cache if k.startswith(prefix)]
+            for k in to_remove:
+                del self._cache[k]
+            return len(to_remove)
+
     def clear(self) -> None:
         with self._lock:
             self._cache.clear()
+
+    def keys(self) -> list[str]:
+        """Return a snapshot of all cache keys."""
+        with self._lock:
+            return list(self._cache.keys())
+
+    def stats(self) -> dict:
+        """Return cache statistics: total entries, fresh/stale breakdown, TTL, max size, oldest entry age."""
+        now = time.time()
+        with self._lock:
+            total = len(self._cache)
+            fresh = 0
+            oldest_age = 0.0
+            for entry in self._cache.values():
+                age = now - entry.fetched_at
+                if age < self._ttl:
+                    fresh += 1
+                if age > oldest_age:
+                    oldest_age = age
+            return {
+                "total_entries": total,
+                "fresh_entries": fresh,
+                "stale_entries": total - fresh,
+                "max_size": self._max_size,
+                "ttl_seconds": self._ttl,
+                "oldest_entry_age_seconds": round(oldest_age, 1) if total > 0 else 0,
+            }

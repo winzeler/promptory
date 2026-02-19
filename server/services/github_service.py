@@ -113,6 +113,40 @@ class GitHubService:
             })
         return history
 
+    def get_file_content_at_sha(
+        self, repo_full_name: str, file_path: str, sha: str
+    ) -> tuple[str, str]:
+        """Get file content at a specific commit SHA. Returns (content, blob_sha)."""
+        repo = self.gh.get_repo(repo_full_name)
+        commit = repo.get_commit(sha)
+        for file in commit.files:
+            if file.filename == file_path:
+                # Fetch the blob content at this commit
+                tree = commit.commit.tree
+                blob = self._find_blob_in_tree(repo, tree, file_path)
+                if blob:
+                    content = base64.b64decode(blob.content).decode("utf-8")
+                    return content, blob.sha
+        raise ValueError(f"File {file_path} not found at commit {sha}")
+
+    def _find_blob_in_tree(self, repo, tree, file_path: str):
+        """Walk the git tree to find a blob by file path."""
+        parts = file_path.split("/")
+        current_tree = tree
+        for i, part in enumerate(parts):
+            for element in current_tree.tree:
+                if element.path == part:
+                    if i == len(parts) - 1:
+                        # Leaf node — should be a blob
+                        return repo.get_git_blob(element.sha)
+                    else:
+                        # Directory — recurse into subtree
+                        current_tree = repo.get_git_tree(element.sha)
+                        break
+            else:
+                return None
+        return None
+
     # ── Write operations ──
 
     def create_file(

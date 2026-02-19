@@ -83,6 +83,23 @@ class AsyncPromptClient:
         self._cache.put(cache_key, data, resp.headers.get("etag"))
         return Prompt.from_api_response(data)
 
+    def cache_stats(self) -> dict:
+        """Return SDK-side cache statistics."""
+        return self._cache.stats()
+
+    def cache_invalidate(self, prompt_name: str) -> int:
+        """Invalidate cached entries for a specific prompt name. Returns count removed."""
+        count = self._cache.invalidate_by_prefix(f"name:{prompt_name}")
+        count += self._cache.invalidate_by_prefix(f"id:{prompt_name}")
+        return count
+
+    def cache_invalidate_all(self) -> int:
+        """Invalidate all cached entries. Returns count removed."""
+        stats = self._cache.stats()
+        total = stats["total_entries"]
+        self._cache.clear()
+        return total
+
     async def close(self):
         await self._http.aclose()
 

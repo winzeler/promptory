@@ -278,6 +278,102 @@ async def get_prompt_diff(prompt_id: str, sha: str, request: Request):
     return {"diff": diff}
 
 
+# ── Rollback & Toggle ──
+
+@router.post("/prompts/{prompt_id}/rollback")
+async def rollback_prompt(prompt_id: str, request: Request):
+    """Rollback a prompt to a previous git commit SHA.
+
+    Fetches file content at the target SHA from GitHub and commits it
+    as the new HEAD, effectively restoring the old version.
+    """
+    user = _require_user(request)
+    db = await get_db()
+    body = await request.json()
+    target_sha = body.get("target_sha")
+    if not target_sha:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "target_sha is required"}})
+
+    prompt = await prompt_queries.get_prompt(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}})
+
+    app = await app_queries.get_app(db, prompt["app_id"])
+    if not app:
+        raise HTTPException(status_code=404, detail={"error": {"code": "APP_NOT_FOUND", "message": "App not found"}})
+
+    gh = _get_github_for_user(user)
+    try:
+        # Get the file content at the target SHA
+        old_content, _ = gh.get_file_content_at_sha(
+            app["github_repo"], prompt["file_path"], target_sha
+        )
+        # Get current file SHA (needed for update)
+        _, current_sha = gh.get_file_content(
+            app["github_repo"], prompt["file_path"], branch=app.get("default_branch", "main")
+        )
+        # Commit the old content as a new commit
+        new_commit_sha = gh.update_file(
+            app["github_repo"],
+            prompt["file_path"],
+            old_content,
+            commit_message=f"Rollback {prompt['name']} to {target_sha[:7]}",
+            sha=current_sha,
+            branch=app.get("default_branch", "main"),
+            author_name=user.get("name") or user.get("login"),
+            author_email=user.get("email"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": {"code": "ROLLBACK_FAILED", "message": str(e)}})
+    finally:
+        gh.close()
+
+    # Invalidate cache for this prompt
+    prompt_cache.invalidate(f"id:{prompt_id}")
+
+    # Re-sync the prompt from GitHub to update DB metadata
+    from server.services.sync_service import sync_app
+    gh2 = _get_github_for_user(user)
+    try:
+        await sync_app(db, app, gh2)
+    finally:
+        gh2.close()
+
+    # Fetch updated prompt to get new version
+    updated = await prompt_queries.get_prompt(db, prompt_id)
+    return {
+        "ok": True,
+        "new_git_sha": new_commit_sha,
+        "new_version": updated.get("version", "unknown") if updated else "unknown",
+    }
+
+
+@router.patch("/prompts/{prompt_id}/active")
+async def toggle_prompt_active(prompt_id: str, request: Request):
+    """Toggle a prompt's active/inactive status."""
+    _require_user(request)
+    db = await get_db()
+    body = await request.json()
+    active = body.get("active")
+    if active is None:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "active (bool) is required"}})
+
+    prompt = await prompt_queries.get_prompt(db, prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}})
+
+    await db.execute(
+        "UPDATE prompts SET active = ?, updated_at = datetime('now') WHERE id = ?",
+        (active, prompt_id),
+    )
+    await db.commit()
+
+    # Invalidate cache for this prompt
+    prompt_cache.invalidate(f"id:{prompt_id}")
+
+    return {"ok": True, "active": active}
+
+
 # ── Sync ──
 
 @router.post("/sync")

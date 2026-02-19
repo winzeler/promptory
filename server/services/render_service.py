@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from jinja2 import BaseLoader, Environment
+from jinja2 import BaseLoader
 from jinja2.sandbox import SandboxedEnvironment
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,6 @@ _env = SandboxedEnvironment(
     loader=BaseLoader(),
     autoescape=False,
     keep_trailing_newline=True,
-    undefined=None,  # Use default Undefined
 )
 
 

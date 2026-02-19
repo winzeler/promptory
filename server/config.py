@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "info"
 
+    # Rate limiting
+    rate_limit_per_minute: int = 100
+
     # CORS
     cors_origins: str = "http://localhost:5173"
 
