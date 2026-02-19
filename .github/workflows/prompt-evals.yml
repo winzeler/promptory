@@ -7,13 +7,19 @@ on:
       - "!README.md"
       - "!CLAUDE.md"
 
+# Set EVAL_BLOCK_MERGE=true in repo variables to make eval failures block merge
+# Settings → Secrets and variables → Actions → Variables
+
 jobs:
   eval:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      EVAL_BLOCK_MERGE: ${{ vars.EVAL_BLOCK_MERGE || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,10 +51,15 @@ jobs:
           fi
 
       - name: Generate configs and run evaluations
+        id: eval
         if: steps.changed.outputs.files != ''
         run: |
           set -e
           FAILED=0
+          RESULTS_MD=""
+          TOTAL_PASS=0
+          TOTAL_FAIL=0
+          FILES_EVALUATED=0
 
           for FILE in ${{ steps.changed.outputs.files }}; do
             echo "::group::Evaluating $FILE"
@@ -74,6 +85,10 @@ jobs:
           "
 
             if [ -f /tmp/promptfooconfig.yaml ]; then
+              FILES_EVALUATED=$((FILES_EVALUATED + 1))
+              FILE_PASS=0
+              FILE_FAIL=0
+
               promptfoo eval \
                 --config /tmp/promptfooconfig.yaml \
                 --output /tmp/eval-output.json \
@@ -81,15 +96,46 @@ jobs:
                 --no-progress-bar || FAILED=1
 
               if [ -f /tmp/eval-output.json ]; then
-                echo "Results:"
-                python -c "
-          import json
+                # Parse results and build markdown summary
+                FILE_RESULTS=$(python -c "
+          import json, sys
           data = json.load(open('/tmp/eval-output.json'))
-          results = data.get('results', [])
-          for r in results:
-              status = 'PASS' if r.get('success', False) else 'FAIL'
-              provider = r.get('provider', {}).get('id', 'unknown')
-              print(f'  {status} - {provider}')
+          results = data.get('results', data.get('table', {}).get('body', []))
+          passes = 0
+          fails = 0
+          lines = []
+          if isinstance(results, list):
+              for r in results:
+                  if isinstance(r, dict):
+                      success = r.get('success', r.get('pass', False))
+                      provider = r.get('provider', {})
+                      if isinstance(provider, dict):
+                          pname = provider.get('id', 'unknown')
+                      else:
+                          pname = str(provider)
+                      if success:
+                          passes += 1
+                          lines.append(f'| {pname} | :white_check_mark: PASS |')
+                      else:
+                          fails += 1
+                          lines.append(f'| {pname} | :x: FAIL |')
+          print(f'{passes}|{fails}')
+          for l in lines:
+              print(l)
+          ")
+                FILE_PASS=$(echo "$FILE_RESULTS" | head -1 | cut -d'|' -f1)
+                FILE_FAIL=$(echo "$FILE_RESULTS" | head -1 | cut -d'|' -f2)
+                FILE_TABLE=$(echo "$FILE_RESULTS" | tail -n +2)
+
+                TOTAL_PASS=$((TOTAL_PASS + FILE_PASS))
+                TOTAL_FAIL=$((TOTAL_FAIL + FILE_FAIL))
+
+                RESULTS_MD="${RESULTS_MD}
+          ### \`${FILE}\`
+
+          | Provider | Result |
+          |----------|--------|
+          ${FILE_TABLE}
           "
               fi
               rm -f /tmp/promptfooconfig.yaml /tmp/eval-output.json
@@ -98,7 +144,72 @@ jobs:
             echo "::endgroup::"
           done
 
-          if [ $FAILED -ne 0 ]; then
-            echo "::error::One or more evaluations failed"
-            exit 1
+          # Save results for PR comment step
+          echo "files_evaluated=$FILES_EVALUATED" >> $GITHUB_OUTPUT
+          echo "total_pass=$TOTAL_PASS" >> $GITHUB_OUTPUT
+          echo "total_fail=$TOTAL_FAIL" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+
+          # Write markdown body to file (multiline output)
+          cat > /tmp/eval-comment.md << 'COMMENT_EOF'
+          ## Prompt Evaluation Results
+
+          COMMENT_EOF
+
+          if [ $FILES_EVALUATED -eq 0 ]; then
+            echo "No prompts with eval config found in changed files." >> /tmp/eval-comment.md
+          else
+            if [ $TOTAL_FAIL -eq 0 ]; then
+              echo ":white_check_mark: **All ${TOTAL_PASS} assertions passed** across ${FILES_EVALUATED} file(s)" >> /tmp/eval-comment.md
+            else
+              echo ":warning: **${TOTAL_FAIL} assertion(s) failed**, ${TOTAL_PASS} passed across ${FILES_EVALUATED} file(s)" >> /tmp/eval-comment.md
+            fi
+            echo "" >> /tmp/eval-comment.md
+            echo "$RESULTS_MD" >> /tmp/eval-comment.md
           fi
+
+          if [ "$EVAL_BLOCK_MERGE" = "true" ] && [ $FAILED -ne 0 ]; then
+            echo "" >> /tmp/eval-comment.md
+            echo "> :no_entry: Merge blocked — eval failures must be resolved. Set \`EVAL_BLOCK_MERGE=false\` in repo variables to disable." >> /tmp/eval-comment.md
+          fi
+
+      - name: Post PR comment
+        if: always() && steps.changed.outputs.files != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/eval-comment.md', 'utf8');
+            const marker = '<!-- promptory-eval-results -->';
+
+            // Find existing comment to update (avoids duplicate comments on re-runs)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            const fullBody = `${marker}\n${body}`;
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: fullBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: fullBody,
+              });
+            }
+
+      - name: Fail if merge blocking enabled and evals failed
+        if: always() && steps.eval.outputs.failed == '1' && env.EVAL_BLOCK_MERGE == 'true'
+        run: |
+          echo "::error::Prompt evaluations failed and EVAL_BLOCK_MERGE is enabled"
+          exit 1
