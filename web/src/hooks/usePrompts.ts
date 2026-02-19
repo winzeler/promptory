@@ -9,6 +9,8 @@ import {
   deletePrompt,
   fetchPromptHistory,
   syncApp,
+  fetchTTSStatus,
+  previewTTS,
 } from "../api/prompts";
 
 export function useOrgs() {
@@ -81,5 +83,20 @@ export function useSyncApp() {
   return useMutation({
     mutationFn: syncApp,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["prompts"] }),
+  });
+}
+
+export function useTTSStatus() {
+  return useQuery({
+    queryKey: ["tts-status"],
+    queryFn: fetchTTSStatus,
+    staleTime: 60_000,
+  });
+}
+
+export function useTTSPreview() {
+  return useMutation({
+    mutationFn: ({ promptId, data }: { promptId: string; data: { variables: Record<string, unknown>; tts_config?: Record<string, unknown> } }) =>
+      previewTTS(promptId, data),
   });
 }

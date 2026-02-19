@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:5173"
 
+    # ElevenLabs TTS
+    elevenlabs_api_key: str = ""
+    elevenlabs_default_model: str = "eleven_multilingual_v2"
+    elevenlabs_default_voice_id: str = ""
+    tts_cache_dir: str = "./data/tts_cache"
+    tts_cache_max_entries: int = 100
+    tts_cache_ttl_hours: int = 24
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

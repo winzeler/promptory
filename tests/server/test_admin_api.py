@@ -371,3 +371,50 @@ async def test_get_prompt_history(admin_client):
 async def test_get_prompt_history_not_found(admin_client):
     resp = await admin_client.get("/api/v1/admin/prompts/nonexistent/history")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# TTS endpoints
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_tts_status(admin_client):
+    with patch("server.api.admin.is_tts_configured", return_value=False):
+        resp = await admin_client.get("/api/v1/admin/tts/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["configured"] is False
+        assert data["provider"] is None
+
+
+@pytest.mark.asyncio
+async def test_tts_status_configured(admin_client):
+    with patch("server.api.admin.is_tts_configured", return_value=True):
+        resp = await admin_client.get("/api/v1/admin/tts/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["configured"] is True
+        assert data["provider"] == "elevenlabs"
+
+
+@pytest.mark.asyncio
+async def test_tts_preview_not_configured(admin_client):
+    with patch("server.api.admin.is_tts_configured", return_value=False):
+        with patch("server.api.admin.render_prompt", return_value="Rendered text"):
+            resp = await admin_client.post(
+                f"/api/v1/admin/prompts/{PROMPT_ID}/tts-preview",
+                json={"variables": {}, "tts_config": {}},
+            )
+            assert resp.status_code == 503
+            data = resp.json()
+            assert data["detail"]["error"]["code"] == "TTS_NOT_CONFIGURED"
+            assert "rendered_body" in data["detail"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_tts_preview_prompt_not_found(admin_client):
+    resp = await admin_client.post(
+        "/api/v1/admin/prompts/nonexistent-id/tts-preview",
+        json={"variables": {}, "tts_config": {}},
+    )
+    assert resp.status_code == 404

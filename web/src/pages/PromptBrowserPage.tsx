@@ -124,6 +124,16 @@ export default function PromptBrowserPage() {
               </div>
               <div className="mt-2 flex items-center gap-3 text-xs text-gray-400">
                 <span>{prompt.type}</span>
+                {prompt.modality_output && prompt.modality_output !== "text" && (
+                  <span className={`rounded px-1 py-0.5 text-xs font-medium ${
+                    prompt.modality_output === "tts" ? "bg-purple-100 text-purple-700"
+                    : prompt.modality_output === "audio" ? "bg-teal-100 text-teal-700"
+                    : prompt.modality_output === "image" ? "bg-orange-100 text-orange-700"
+                    : "bg-gray-100 text-gray-600"
+                  }`}>
+                    {prompt.modality_output}
+                  </span>
+                )}
                 {prompt.domain && <span>{prompt.domain}</span>}
                 {prompt.version && <span>v{prompt.version}</span>}
               </div>

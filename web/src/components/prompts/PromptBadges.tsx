@@ -1,6 +1,7 @@
 interface Props {
   type: string;
   environment: string;
+  modalityOutput?: string;
 }
 
 const envColors: Record<string, string> = {
@@ -17,7 +18,13 @@ const typeColors: Record<string, string> = {
   image: "bg-orange-100 text-orange-700",
 };
 
-export default function PromptBadges({ type, environment }: Props) {
+const modalityColors: Record<string, string> = {
+  tts: "bg-purple-100 text-purple-700",
+  audio: "bg-teal-100 text-teal-700",
+  image: "bg-orange-100 text-orange-700",
+};
+
+export default function PromptBadges({ type, environment, modalityOutput }: Props) {
   return (
     <div className="flex gap-1">
       <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${typeColors[type] ?? "bg-gray-100 text-gray-700"}`}>
@@ -26,6 +33,11 @@ export default function PromptBadges({ type, environment }: Props) {
       <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${envColors[environment] ?? "bg-gray-100 text-gray-700"}`}>
         {environment}
       </span>
+      {modalityOutput && modalityOutput !== "text" && (
+        <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${modalityColors[modalityOutput] ?? "bg-gray-100 text-gray-700"}`}>
+          {modalityOutput}
+        </span>
+      )}
     </div>
   );
 }

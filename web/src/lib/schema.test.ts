@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { frontMatterSchema, modelConfigSchema } from "./schema";
+import {
+  frontMatterSchema,
+  modelConfigSchema,
+  ttsConfigSchema,
+  audioConfigSchema,
+  modalityConfigSchema,
+} from "./schema";
 
 describe("modelConfigSchema", () => {
   it("accepts valid model config", () => {
@@ -135,5 +141,143 @@ describe("frontMatterSchema", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  it("accepts optional tts config", () => {
+    const result = frontMatterSchema.safeParse({
+      name: "test",
+      type: "tts",
+      tts: { provider: "elevenlabs", stability: 0.5 },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts optional audio config", () => {
+    const result = frontMatterSchema.safeParse({
+      name: "test",
+      audio: { target_duration_minutes: 10, bpm: 60 },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts optional modality config", () => {
+    const result = frontMatterSchema.safeParse({
+      name: "test",
+      modality: { input: "text", output: "tts" },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("ttsConfigSchema", () => {
+  it("accepts valid TTS config", () => {
+    const result = ttsConfigSchema.safeParse({
+      provider: "elevenlabs",
+      voice_id: "abc123",
+      stability: 0.5,
+      similarity_boost: 0.75,
+      style: 0.1,
+      use_speaker_boost: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("applies default provider", () => {
+    const result = ttsConfigSchema.parse({});
+    expect(result.provider).toBe("elevenlabs");
+  });
+
+  it("rejects invalid provider", () => {
+    const result = ttsConfigSchema.safeParse({ provider: "azure" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects stability out of range", () => {
+    const result = ttsConfigSchema.safeParse({ stability: 1.5 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects negative similarity_boost", () => {
+    const result = ttsConfigSchema.safeParse({ similarity_boost: -0.1 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects style over 1", () => {
+    const result = ttsConfigSchema.safeParse({ style: 2.0 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("audioConfigSchema", () => {
+  it("accepts valid audio config", () => {
+    const result = audioConfigSchema.safeParse({
+      target_duration_minutes: 10,
+      binaural_frequency_hz: 5.0,
+      bpm: 60,
+      key_signature: "C Minor",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects negative duration", () => {
+    const result = audioConfigSchema.safeParse({ target_duration_minutes: -5 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects binaural frequency over 40", () => {
+    const result = audioConfigSchema.safeParse({ binaural_frequency_hz: 50 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects negative bpm", () => {
+    const result = audioConfigSchema.safeParse({ bpm: -10 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-integer bpm", () => {
+    const result = audioConfigSchema.safeParse({ bpm: 3.5 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("modalityConfigSchema", () => {
+  it("accepts valid modality config", () => {
+    const result = modalityConfigSchema.safeParse({
+      input: "text",
+      output: "tts",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("applies defaults", () => {
+    const result = modalityConfigSchema.parse({});
+    expect(result.input).toBe("text");
+    expect(result.output).toBe("text");
+  });
+
+  it("rejects invalid input modality", () => {
+    const result = modalityConfigSchema.safeParse({ input: "smell" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid output modality", () => {
+    const result = modalityConfigSchema.safeParse({ output: "hologram" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts all valid input types", () => {
+    const inputs = ["text", "audio", "image", "video", "multimodal"];
+    for (const inp of inputs) {
+      const result = modalityConfigSchema.safeParse({ input: inp });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("accepts all valid output types", () => {
+    const outputs = ["text", "audio", "image", "tts"];
+    for (const out of outputs) {
+      const result = modalityConfigSchema.safeParse({ output: out });
+      expect(result.success).toBe(true);
+    }
   });
 });

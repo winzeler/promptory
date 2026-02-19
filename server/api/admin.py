@@ -6,6 +6,7 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from server.db.database import get_db
 from server.db.queries import organizations as org_queries
@@ -17,6 +18,13 @@ from server.services.prompt_service import (
     update_prompt,
     delete_prompt_file,
     get_prompt_with_content,
+)
+from server.services.render_service import render_prompt
+from server.services.tts_service import (
+    synthesize_tts,
+    is_tts_configured,
+    TTSError,
+    TTSNotConfiguredError,
 )
 from server.services.sync_service import sync_app
 from server.services.cache_service import prompt_cache
@@ -390,6 +398,78 @@ async def toggle_prompt_active(prompt_id: str, request: Request):
     prompt_cache.invalidate(f"id:{prompt_id}")
 
     return {"ok": True, "active": active}
+
+
+# ── TTS ──
+
+@router.get("/tts/status")
+async def tts_status(request: Request):
+    """Check whether TTS synthesis is configured on the server."""
+    _require_user(request)
+    configured = is_tts_configured()
+    return {"configured": configured, "provider": "elevenlabs" if configured else None}
+
+
+@router.post("/prompts/{prompt_id}/tts-preview")
+async def tts_preview(prompt_id: str, request: Request):
+    """Render a prompt and synthesize TTS audio preview."""
+    _require_user(request)
+    db = await get_db()
+
+    prompt = await prompt_queries.get_prompt(db, prompt_id)
+    if not prompt:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}},
+        )
+
+    body_data = await request.json()
+    variables = body_data.get("variables", {})
+    tts_config = body_data.get("tts_config", {})
+
+    # Render the prompt body with variables
+    prompt_body = prompt.get("body", "")
+    try:
+        rendered_body = render_prompt(prompt_body, variables)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "RENDER_ERROR", "message": str(e)}},
+        )
+
+    # If TTS is not configured, return 503 with rendered body so client can still display it
+    if not is_tts_configured():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "TTS_NOT_CONFIGURED",
+                    "message": "ElevenLabs API key not configured on server",
+                    "rendered_body": rendered_body,
+                }
+            },
+        )
+
+    try:
+        audio_path = await synthesize_tts(rendered_body, tts_config)
+    except TTSNotConfiguredError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "TTS_NOT_CONFIGURED",
+                    "message": "ElevenLabs API key not configured",
+                    "rendered_body": rendered_body,
+                }
+            },
+        )
+    except TTSError as e:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"code": "TTS_SYNTHESIS_FAILED", "message": str(e)}},
+        )
+
+    return FileResponse(audio_path, media_type="audio/mpeg")
 
 
 # ── Sync ──

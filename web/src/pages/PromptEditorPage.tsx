@@ -132,6 +132,14 @@ export default function PromptEditorPage() {
           >
             Preview
           </Link>
+          {currentFM.type === "tts" && (
+            <Link
+              to={`/prompts/${id}/preview`}
+              className="rounded border border-purple-400 bg-purple-50 px-3 py-1.5 text-sm text-purple-700 hover:bg-purple-100"
+            >
+              TTS Preview
+            </Link>
+          )}
           <Link
             to={`/prompts/${id}/eval`}
             className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"

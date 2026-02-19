@@ -124,4 +124,6 @@ class PromptListItem(BaseModel):
     active: bool = True
     version: str | None = None
     default_model: str | None = None
+    modality_input: str | None = None
+    modality_output: str | None = None
     updated_at: str | None = None

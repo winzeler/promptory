@@ -11,6 +11,8 @@ export interface PromptListItem {
   active: boolean;
   version: string | null;
   default_model: string | null;
+  modality_input: string | null;
+  modality_output: string | null;
   updated_at: string | null;
 }
 
@@ -124,4 +126,26 @@ export async function syncApp(appId: string): Promise<{ synced: number }> {
 
 export async function syncAll(): Promise<{ synced: number }> {
   return apiFetch("/api/v1/admin/sync", { method: "POST" });
+}
+
+export async function fetchTTSStatus(): Promise<{ configured: boolean; provider: string | null }> {
+  return apiFetch("/api/v1/admin/tts/status");
+}
+
+export async function previewTTS(
+  promptId: string,
+  data: { variables: Record<string, unknown>; tts_config?: Record<string, unknown> }
+): Promise<Blob> {
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+  const resp = await fetch(`${API_BASE}/api/v1/admin/prompts/${promptId}/tts-preview`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body?.error?.message || resp.statusText);
+  }
+  return resp.blob();
 }

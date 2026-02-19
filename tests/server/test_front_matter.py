@@ -252,3 +252,78 @@ class TestValidateFrontMatter:
     def test_invalid_uuid_id(self):
         errors = validate_front_matter({"name": "test", "id": "not-uuid"})
         assert any("UUID" in e for e in errors)
+
+    # --- TTS config validation ---
+
+    def test_valid_tts_config(self):
+        fm = {
+            "name": "test",
+            "tts": {
+                "provider": "elevenlabs",
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "style": 0.1,
+                "use_speaker_boost": True,
+            },
+        }
+        errors = validate_front_matter(fm)
+        assert errors == []
+
+    def test_invalid_tts_provider(self):
+        fm = {"name": "test", "tts": {"provider": "azure"}}
+        errors = validate_front_matter(fm)
+        assert any("tts.provider" in e for e in errors)
+
+    def test_tts_stability_out_of_range(self):
+        fm = {"name": "test", "tts": {"stability": 1.5}}
+        errors = validate_front_matter(fm)
+        assert any("tts.stability" in e for e in errors)
+
+    def test_tts_similarity_boost_negative(self):
+        fm = {"name": "test", "tts": {"similarity_boost": -0.1}}
+        errors = validate_front_matter(fm)
+        assert any("tts.similarity_boost" in e for e in errors)
+
+    def test_tts_style_out_of_range(self):
+        fm = {"name": "test", "tts": {"style": 2.0}}
+        errors = validate_front_matter(fm)
+        assert any("tts.style" in e for e in errors)
+
+    def test_tts_speaker_boost_not_bool(self):
+        fm = {"name": "test", "tts": {"use_speaker_boost": "yes"}}
+        errors = validate_front_matter(fm)
+        assert any("use_speaker_boost" in e for e in errors)
+
+    # --- Audio config validation ---
+
+    def test_valid_audio_config(self):
+        fm = {
+            "name": "test",
+            "audio": {
+                "target_duration_minutes": 10,
+                "binaural_frequency_hz": 5.0,
+                "bpm": 60,
+            },
+        }
+        errors = validate_front_matter(fm)
+        assert errors == []
+
+    def test_audio_negative_duration(self):
+        fm = {"name": "test", "audio": {"target_duration_minutes": -5}}
+        errors = validate_front_matter(fm)
+        assert any("target_duration_minutes" in e for e in errors)
+
+    def test_audio_binaural_out_of_range(self):
+        fm = {"name": "test", "audio": {"binaural_frequency_hz": 50}}
+        errors = validate_front_matter(fm)
+        assert any("binaural_frequency_hz" in e for e in errors)
+
+    def test_audio_invalid_bpm(self):
+        fm = {"name": "test", "audio": {"bpm": -10}}
+        errors = validate_front_matter(fm)
+        assert any("bpm" in e for e in errors)
+
+    def test_audio_bpm_must_be_int(self):
+        fm = {"name": "test", "audio": {"bpm": 3.5}}
+        errors = validate_front_matter(fm)
+        assert any("bpm" in e for e in errors)
