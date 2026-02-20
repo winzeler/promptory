@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:5173"
 
+    # Deployment mode: "container" (default) or "lambda"
+    deployment_mode: str = "container"
+
+    # AWS (Lambda mode only)
+    aws_region: str = "us-west-2"
+    dynamodb_state_table: str = "promptory-oauth-states"
+    s3_tts_bucket: str = ""
+
     # ElevenLabs TTS
     elevenlabs_api_key: str = ""
     elevenlabs_default_model: str = "eleven_multilingual_v2"

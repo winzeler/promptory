@@ -37,10 +37,17 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     logger.info("Starting Promptory server...")
     await init_db()
-    cleanup_task = asyncio.create_task(_session_cleanup_loop())
-    logger.info("Promptory server ready")
+
+    cleanup_task = None
+    if settings.deployment_mode != "lambda":
+        # Container mode: run session cleanup loop in background
+        cleanup_task = asyncio.create_task(_session_cleanup_loop())
+
+    logger.info("Promptory server ready (mode=%s)", settings.deployment_mode)
     yield
-    cleanup_task.cancel()
+
+    if cleanup_task:
+        cleanup_task.cancel()
     await close_db()
     logger.info("Promptory server stopped")
 

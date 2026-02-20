@@ -25,7 +25,14 @@ async def init_db() -> None:
 
     _db = await aiosqlite.connect(str(db_path))
     _db.row_factory = aiosqlite.Row
-    await _db.execute("PRAGMA journal_mode=WAL")
+
+    if settings.deployment_mode == "lambda":
+        # EFS lacks mmap support required for WAL; use DELETE journal mode
+        await _db.execute("PRAGMA journal_mode=DELETE")
+        await _db.execute("PRAGMA busy_timeout=5000")
+    else:
+        await _db.execute("PRAGMA journal_mode=WAL")
+
     await _db.execute("PRAGMA foreign_keys=ON")
 
     await _run_migrations(_db)

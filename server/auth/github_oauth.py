@@ -12,12 +12,13 @@ from server.config import settings
 from server.db.database import get_db
 from server.db.queries import users as user_queries
 from server.db.queries import organizations as org_queries
+from server.services.state_store import get_state_store
 from server.utils.crypto import encrypt
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-# In-memory CSRF state store (use Redis in production)
-_oauth_states: dict[str, bool] = {}
+# OAuth CSRF state store — MemoryStateStore (container) or DynamoDBStateStore (lambda)
+_state_store = get_state_store()
 
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
@@ -29,7 +30,7 @@ GITHUB_ORGS_URL = "https://api.github.com/user/orgs"
 async def github_login():
     """Redirect to GitHub OAuth authorization page."""
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = True
+    await _state_store.put_state(state)
 
     params = {
         "client_id": settings.github_client_id,
@@ -44,10 +45,9 @@ async def github_login():
 @router.get("/github/callback")
 async def github_callback(code: str, state: str, response: Response):
     """Handle GitHub OAuth callback."""
-    # Verify state
-    if state not in _oauth_states:
+    # Verify CSRF state (atomic check-and-delete via StateStore)
+    if not await _state_store.validate_state(state):
         return RedirectResponse(f"{settings.frontend_url}/login?error=invalid_state")
-    del _oauth_states[state]
 
     # Exchange code for token
     async with httpx.AsyncClient() as client:

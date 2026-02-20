@@ -1,0 +1,447 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Promptory Serverless Deployment — FastAPI on Lambda with EFS-backed SQLite,
+  DynamoDB OAuth state, S3 TTS cache, and CloudFront-served web UI.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment stage
+
+  VpcCidr:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: VPC CIDR block
+
+  SubnetACidr:
+    Type: String
+    Default: "10.0.1.0/24"
+
+  SubnetBCidr:
+    Type: String
+    Default: "10.0.2.0/24"
+
+  GitHubClientId:
+    Type: String
+    NoEcho: true
+    Description: GitHub OAuth app client ID
+
+  GitHubClientSecret:
+    Type: String
+    NoEcho: true
+    Description: GitHub OAuth app client secret
+
+  AppSecretKey:
+    Type: String
+    NoEcho: true
+    Description: Session signing key
+
+  FrontendUrl:
+    Type: String
+    Default: ""
+    Description: CloudFront URL for the web UI (set after first deploy)
+
+  CorsOrigins:
+    Type: String
+    Default: "http://localhost:5173"
+    Description: Comma-separated allowed CORS origins
+
+  ElevenLabsApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: ElevenLabs API key (optional, for TTS preview)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Globals
+# ─────────────────────────────────────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        DEPLOYMENT_MODE: lambda
+        DATABASE_PATH: /mnt/efs/data/promptory.db
+        DYNAMODB_STATE_TABLE: !Ref OAuthStateTable
+        S3_TTS_BUCKET: !Ref TTSCacheBucket
+        GITHUB_CLIENT_ID: !Ref GitHubClientId
+        GITHUB_CLIENT_SECRET: !Ref GitHubClientSecret
+        APP_SECRET_KEY: !Ref AppSecretKey
+        FRONTEND_URL: !Ref FrontendUrl
+        CORS_ORIGINS: !Ref CorsOrigins
+        ELEVENLABS_API_KEY: !Ref ElevenLabsApiKey
+        LOG_LEVEL: info
+
+Resources:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Networking
+  # ───────────────────────────────────────────────────────────────────────────
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "promptory-${Stage}-vpc"
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref SubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "promptory-${Stage}-subnet-a"
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref SubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "promptory-${Stage}-subnet-b"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # EFS (SQLite storage — persists across Lambda invocations)
+  # ───────────────────────────────────────────────────────────────────────────
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      Tags:
+        - Key: Name
+          Value: !Sub "promptory-${Stage}-efs"
+
+  MountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref PrivateSubnetA
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  MountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref PrivateSubnetB
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  AccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref FileSystem
+      PosixUser:
+        Uid: "1000"
+        Gid: "1000"
+      RootDirectory:
+        CreationInfo:
+          OwnerUid: "1000"
+          OwnerGid: "1000"
+          Permissions: "755"
+        Path: "/promptory"
+
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow NFS from Lambda
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # DynamoDB (OAuth CSRF state — TTL auto-expiry)
+  # ───────────────────────────────────────────────────────────────────────────
+  OAuthStateTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "promptory-oauth-states-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: state
+          AttributeType: S
+      KeySchema:
+        - AttributeName: state
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # S3 — TTS audio cache (24h lifecycle expiry)
+  # ───────────────────────────────────────────────────────────────────────────
+  TTSCacheBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "promptory-tts-cache-${Stage}"
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireTTSCache
+            Status: Enabled
+            ExpirationInDays: 1
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # S3 — Web UI static assets
+  # ───────────────────────────────────────────────────────────────────────────
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "promptory-web-${Stage}"
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # CloudFront — Web UI CDN with SPA routing
+  # ───────────────────────────────────────────────────────────────────────────
+  WebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "promptory-web-oac-${Stage}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt WebBucket.RegionalDomainName
+            Id: S3Origin
+            OriginAccessControlId: !Ref WebOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        Enabled: true
+        HttpVersion: http2and3
+        Comment: !Sub "Promptory Web UI (${Stage})"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Lambda — API (Mangum + FastAPI)
+  # ───────────────────────────────────────────────────────────────────────────
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "promptory-${Stage}-api"
+      Handler: server.lambda_handler.handler
+      CodeUri: ..
+      MemorySize: 512
+      Timeout: 30
+      ReservedConcurrentExecutions: 1  # SQLite single-writer safety
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+      FileSystemConfigs:
+        - Arn: !GetAtt AccessPoint.Arn
+          LocalMountPath: /mnt/efs
+      Environment:
+        Variables:
+          APP_BASE_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OAuthStateTable
+        - S3CrudPolicy:
+            BucketName: !Ref TTSCacheBucket
+      Events:
+        CatchAll:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Lambda — Session Cleanup (EventBridge hourly schedule)
+  # ───────────────────────────────────────────────────────────────────────────
+  CleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "promptory-${Stage}-cleanup"
+      Handler: scripts.cleanup_sessions_handler.handler
+      CodeUri: ..
+      Timeout: 60
+      MemorySize: 256
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+      FileSystemConfigs:
+        - Arn: !GetAtt AccessPoint.Arn
+          LocalMountPath: /mnt/efs
+      Events:
+        HourlyCleanup:
+          Type: Schedule
+          Properties:
+            Schedule: "rate(1 hour)"
+            Description: Clean up expired Promptory sessions
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # API Gateway (HTTP API v2)
+  # ───────────────────────────────────────────────────────────────────────────
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins:
+          - "http://localhost:5173"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        AllowHeaders:
+          - "*"
+        AllowCredentials: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 100
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Security Group — Lambda functions
+  # ───────────────────────────────────────────────────────────────────────────
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Promptory Lambda function security group
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "promptory-${Stage}-lambda-sg"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # CloudWatch Alarms
+  # ───────────────────────────────────────────────────────────────────────────
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "promptory-${Stage}-api-errors"
+      AlarmDescription: Lambda API function errors exceed threshold
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+
+  ApiDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "promptory-${Stage}-api-duration"
+      AlarmDescription: Lambda API function duration exceeds threshold
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+
+  ApiThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "promptory-${Stage}-api-throttles"
+      AlarmDescription: Lambda API function throttled
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+
+  WebDistributionUrl:
+    Description: CloudFront distribution URL for web UI
+    Value: !Sub "https://${WebDistribution.DomainName}"
+
+  WebDistributionId:
+    Description: CloudFront distribution ID (for cache invalidation)
+    Value: !Ref WebDistribution
+
+  WebBucketName:
+    Description: S3 bucket for web UI assets
+    Value: !Ref WebBucket
+
+  ApiFunctionName:
+    Description: Lambda function name for API
+    Value: !Ref ApiFunction
+
+  EfsId:
+    Description: EFS filesystem ID
+    Value: !Ref FileSystem
+
+  OAuthTableName:
+    Description: DynamoDB table for OAuth state
+    Value: !Ref OAuthStateTable
+
+  TTSBucketName:
+    Description: S3 bucket for TTS audio cache
+    Value: !Ref TTSCacheBucket

@@ -6,7 +6,7 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 
 from server.db.database import get_db
 from server.db.queries import organizations as org_queries
@@ -752,7 +752,7 @@ async def tts_preview(prompt_id: str, request: Request):
         )
 
     try:
-        audio_path = await synthesize_tts(rendered_body, tts_config)
+        audio_url = await synthesize_tts(rendered_body, tts_config)
     except TTSNotConfiguredError:
         raise HTTPException(
             status_code=503,
@@ -770,7 +770,11 @@ async def tts_preview(prompt_id: str, request: Request):
             detail={"error": {"code": "TTS_SYNTHESIS_FAILED", "message": str(e)}},
         )
 
-    return FileResponse(audio_path, media_type="audio/mpeg")
+    # S3 presigned URLs start with https:// — redirect the client
+    if audio_url.startswith("https://"):
+        return RedirectResponse(audio_url, status_code=302)
+    # Local filesystem — serve file directly
+    return FileResponse(audio_url, media_type="audio/mpeg")
 
 
 # ── Sync ──
