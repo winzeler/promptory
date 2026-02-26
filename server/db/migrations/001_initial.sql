@@ -1,4 +1,4 @@
--- Promptory initial schema
+-- Promptdis initial schema
 -- SQLite is index/cache only; GitHub is source of truth for prompt content.
 
 CREATE TABLE IF NOT EXISTS schema_version (

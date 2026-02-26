@@ -1,4 +1,4 @@
-# Promptory
+# Promptdis
 
 Git-native LLM prompt management platform. Store prompts as Markdown files in GitHub, edit them through a web UI, fetch them at runtime via SDK.
 
@@ -43,7 +43,7 @@ Git-native LLM prompt management platform. Store prompts as Markdown files in Gi
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/futureself-app/promptory.git
+git clone https://github.com/futureself-app/promptdis.git
 cd prompt-mgmt
 
 # Backend
@@ -74,7 +74,7 @@ APP_BASE_URL=http://localhost:8000
 FRONTEND_URL=http://localhost:5173
 
 # Database (created automatically)
-DATABASE_PATH=./data/promptory.db
+DATABASE_PATH=./data/promptdis.db
 
 # Optional — ElevenLabs TTS preview
 ELEVENLABS_API_KEY=
@@ -102,7 +102,7 @@ The API is at `http://localhost:8000` (docs at `/docs`). The web UI is at `http:
 1. Open `http://localhost:5173` and sign in with GitHub
 2. Your GitHub organizations are synced automatically
 3. Go to **Settings** → **Add Application** → enter a GitHub repo containing `.md` prompt files
-4. Promptory indexes all `.md` files from the repo into SQLite
+4. Promptdis indexes all `.md` files from the repo into SQLite
 5. Browse, edit, and create prompts through the web UI
 
 ### Docker / Podman
@@ -151,18 +151,18 @@ Generate a calming {{ duration_minutes }}-minute relaxation meditation...
 
 The body supports full Jinja2 syntax: `{{ variables }}`, `{% if %}`, `{% for %}`, `{% include "other_prompt" %}`.
 
-See [PROMPTORY_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md) for the complete YAML front-matter schema.
+See [PROMPTDIS_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS.md) for the complete YAML front-matter schema.
 
 ## Using the SDKs
 
 ### Python
 
 ```bash
-pip install promptory
+pip install promptdis
 ```
 
 ```python
-from promptory import PromptClient
+from promptdis import PromptClient
 
 client = PromptClient(
     base_url="http://localhost:8000",
@@ -187,11 +187,11 @@ See [`sdk/README.md`](sdk/README.md) for full documentation.
 ### TypeScript
 
 ```bash
-npm install @promptory/client
+npm install @promptdis/client
 ```
 
 ```typescript
-import { PromptClient } from "@promptory/client";
+import { PromptClient } from "@promptdis/client";
 
 const client = new PromptClient({
   baseUrl: "http://localhost:8000",
@@ -208,7 +208,7 @@ See [`sdk-ts/README.md`](sdk-ts/README.md) for full documentation.
 
 ## API Overview
 
-All endpoints are under `/api/v1`. Full documentation: [PROMPTORY_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md)
+All endpoints are under `/api/v1`. Full documentation: [PROMPTDIS_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS.md)
 
 ### Public API (API key auth)
 
@@ -354,9 +354,9 @@ prompt-mgmt/
 │       ├── hooks/           # React Query hooks
 │       ├── api/             # API client functions
 │       └── lib/             # Zod schemas, constants
-├── sdk/                     # Python SDK (pip install promptory)
-│   └── src/promptory/       # Client, async client, cache, models, exceptions
-├── sdk-ts/                  # TypeScript SDK (@promptory/client)
+├── sdk/                     # Python SDK (pip install promptdis)
+│   └── src/promptdis/       # Client, async client, cache, models, exceptions
+├── sdk-ts/                  # TypeScript SDK (@promptdis/client)
 │   └── src/                 # Client, cache, models, errors
 ├── tests/                   # Python test suite
 │   ├── conftest.py          # Shared fixtures (in-memory DB, seed data)
@@ -403,7 +403,7 @@ All configuration is via environment variables (loaded from `.env`):
 | `APP_SECRET_KEY` | `change-me-in-production` | Secret for session/token encryption |
 | `APP_BASE_URL` | `http://localhost:8000` | Server base URL |
 | `FRONTEND_URL` | `http://localhost:5173` | Frontend URL (for OAuth redirect) |
-| `DATABASE_PATH` | `./data/promptory.db` | SQLite database file path |
+| `DATABASE_PATH` | `./data/promptdis.db` | SQLite database file path |
 | `LOG_LEVEL` | `info` | Logging level |
 | `RATE_LIMIT_PER_MINUTE` | `100` | API rate limit per key/IP |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |

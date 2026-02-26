@@ -16,7 +16,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center border-b border-gray-200 px-4">
         <Link to="/" className="text-xl font-bold text-gray-900">
-          Promptory
+          Promptdis
         </Link>
       </div>
 
@@ -47,7 +47,7 @@ export default function Sidebar() {
 
       {/* Version */}
       <div className="border-t border-gray-200 p-4 text-xs text-gray-400">
-        Promptory v0.1.0
+        Promptdis v0.1.0
       </div>
     </aside>
   );

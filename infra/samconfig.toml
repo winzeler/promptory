@@ -4,9 +4,9 @@
 version = 0.1
 
 [default.deploy.parameters]
-stack_name = "promptory-dev"
+stack_name = "promptdis-dev"
 resolve_s3 = true
-s3_prefix = "promptory-dev"
+s3_prefix = "promptdis-dev"
 region = "us-west-2"
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
 confirm_changeset = true

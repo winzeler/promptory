@@ -1,17 +1,17 @@
-# @promptory/client
+# @promptdis/client
 
-TypeScript SDK for [Promptory](https://github.com/futureself-app/promptory) — Git-native LLM prompt management.
+TypeScript SDK for [Promptdis](https://github.com/futureself-app/promptdis) — Git-native LLM prompt management.
 
-Fetch, cache, and render LLM prompts from a Promptory server. Zero dependencies — uses native `fetch`. Built-in LRU cache with ETag revalidation and retry with exponential backoff.
+Fetch, cache, and render LLM prompts from a Promptdis server. Zero dependencies — uses native `fetch`. Built-in LRU cache with ETag revalidation and retry with exponential backoff.
 
 ## Installation
 
 ```bash
-npm install @promptory/client
+npm install @promptdis/client
 # or
-yarn add @promptory/client
+yarn add @promptdis/client
 # or
-pnpm add @promptory/client
+pnpm add @promptdis/client
 ```
 
 **Requirements:** Node.js 18+ (or any runtime with global `fetch`)
@@ -19,7 +19,7 @@ pnpm add @promptory/client
 ## Quick Start
 
 ```typescript
-import { PromptClient } from "@promptory/client";
+import { PromptClient } from "@promptdis/client";
 
 const client = new PromptClient({
   baseUrl: "http://localhost:8000",
@@ -48,8 +48,8 @@ const local = client.renderLocal(prompt.body, { name: "Alice" });
 
 ```typescript
 const client = new PromptClient({
-  baseUrl: "http://localhost:8000",  // Promptory server URL
-  apiKey: "pm_live_...",              // API key from Promptory web UI
+  baseUrl: "http://localhost:8000",  // Promptdis server URL
+  apiKey: "pm_live_...",              // API key from Promptdis web UI
   cacheMaxSize: 100,    // Max LRU cache entries (default: 100)
   cacheTtlMs: 60_000,   // Cache TTL in milliseconds (default: 60000)
   maxRetries: 3,         // Retry attempts on 429/5xx (default: 3)
@@ -58,7 +58,7 @@ const client = new PromptClient({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `baseUrl` | `string` | (required) | Promptory server URL |
+| `baseUrl` | `string` | (required) | Promptdis server URL |
 | `apiKey` | `string` | (required) | API key starting with `pm_live_` or `pm_test_` |
 | `cacheMaxSize` | `number` | `100` | Max entries in LRU cache before eviction |
 | `cacheTtlMs` | `number` | `60000` | Milliseconds before a cache entry expires |
@@ -109,9 +109,9 @@ Use `client.renderLocal()` for fast `{{variable}}` substitution without a server
 ```typescript
 const result = client.renderLocal(
   "Hello {{name}}, welcome to {{app}}!",
-  { name: "Alice", app: "Promptory" }
+  { name: "Alice", app: "Promptdis" }
 );
-// "Hello Alice, welcome to Promptory!"
+// "Hello Alice, welcome to Promptdis!"
 ```
 
 Local rendering only supports simple `{{ variable }}` placeholders. For conditionals, loops, filters, or includes, use `client.render()`.
@@ -177,11 +177,11 @@ client.cacheClear();
 ```typescript
 import {
   PromptClient,
-  PromptoryError,
+  PromptdisError,
   NotFoundError,
   AuthenticationError,
   RateLimitError,
-} from "@promptory/client";
+} from "@promptdis/client";
 
 try {
   const prompt = await client.get("missing-id");
@@ -192,7 +192,7 @@ try {
     console.log("Invalid API key");
   } else if (e instanceof RateLimitError) {
     console.log(`Rate limited. Retry after ${e.retryAfter}s`);
-  } else if (e instanceof PromptoryError) {
+  } else if (e instanceof PromptdisError) {
     console.log(`API error: ${e.message}`);
   }
 }
@@ -202,7 +202,7 @@ try {
 
 | Class | HTTP Status | Properties | Description |
 |-------|-------------|------------|-------------|
-| `PromptoryError` | any | `message` | Base error for all SDK errors |
+| `PromptdisError` | any | `message` | Base error for all SDK errors |
 | `NotFoundError` | 404 | `message` | Prompt or resource not found |
 | `AuthenticationError` | 401 | `message` | Invalid or missing API key |
 | `RateLimitError` | 429 | `message`, `retryAfter` | Rate limit exceeded |
@@ -218,10 +218,10 @@ The client automatically retries on `429` (rate limit) and `5xx` (server error) 
 
 ## Integration Example
 
-Using Promptory with the Anthropic SDK:
+Using Promptdis with the Anthropic SDK:
 
 ```typescript
-import { PromptClient } from "@promptory/client";
+import { PromptClient } from "@promptdis/client";
 import Anthropic from "@anthropic-ai/sdk";
 
 const prompts = new PromptClient({
@@ -276,7 +276,7 @@ export { PromptClient } from "./client";
 export { LRUCache } from "./cache";
 
 // Errors
-export { PromptoryError, NotFoundError, AuthenticationError, RateLimitError } from "./errors";
+export { PromptdisError, NotFoundError, AuthenticationError, RateLimitError } from "./errors";
 
 // Types
 export type { Prompt } from "./models";

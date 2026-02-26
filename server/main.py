@@ -1,4 +1,4 @@
-"""Promptory — FastAPI application entry point."""
+"""Promptdis — FastAPI application entry point."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def _session_cleanup_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
-    logger.info("Starting Promptory server...")
+    logger.info("Starting Promptdis server...")
     await init_db()
 
     cleanup_task = None
@@ -43,17 +43,17 @@ async def lifespan(app: FastAPI):
         # Container mode: run session cleanup loop in background
         cleanup_task = asyncio.create_task(_session_cleanup_loop())
 
-    logger.info("Promptory server ready (mode=%s)", settings.deployment_mode)
+    logger.info("Promptdis server ready (mode=%s)", settings.deployment_mode)
     yield
 
     if cleanup_task:
         cleanup_task.cancel()
     await close_db()
-    logger.info("Promptory server stopped")
+    logger.info("Promptdis server stopped")
 
 
 app = FastAPI(
-    title="Promptory",
+    title="Promptdis",
     description="Git-native LLM prompt management platform",
     version="0.1.0",
     lifespan=lifespan,
@@ -92,9 +92,9 @@ app.include_router(eval_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "promptory", "version": "0.1.0"}
+    return {"status": "ok", "service": "promptdis", "version": "0.1.0"}
 
 
 @app.get("/")
 async def root():
-    return {"service": "promptory", "docs": "/docs"}
+    return {"service": "promptdis", "docs": "/docs"}

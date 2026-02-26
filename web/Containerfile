@@ -1,6 +1,6 @@
-# Promptory Web — multi-stage build
-# Build: podman build -t promptory-web -f Containerfile .
-#   (or: docker build -t promptory-web .)
+# Promptdis Web — multi-stage build
+# Build: podman build -t promptdis-web -f Containerfile .
+#   (or: docker build -t promptdis-web .)
 
 # ── Build ────────────────────────────────────────────────
 FROM node:20-slim AS build

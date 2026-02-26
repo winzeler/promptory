@@ -1,7 +1,7 @@
-"""Convert between Promptory .md format and Microsoft .prompty format.
+"""Convert between Promptdis .md format and Microsoft .prompty format.
 
 Prompty spec: https://prompty.ai/docs/prompty-file-spec
-Mapping follows PROMPTORY_API_DOCS.md section 9.1.
+Mapping follows PROMPTDIS_API_DOCS.md section 9.1.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import yaml
 
 
 def md_to_prompty(front_matter: dict, body: str) -> str:
-    """Convert a Promptory .md prompt (front-matter + body) to .prompty format."""
+    """Convert a Promptdis .md prompt (front-matter + body) to .prompty format."""
     prompty: dict = {}
 
     # Direct mappings
@@ -60,7 +60,7 @@ def md_to_prompty(front_matter: dict, body: str) -> str:
 def prompty_to_md(prompty_content: str) -> tuple[dict, str]:
     """Parse a .prompty file and return (front_matter_dict, body).
 
-    Returns a front-matter dict compatible with Promptory .md format.
+    Returns a front-matter dict compatible with Promptdis .md format.
     """
     # Split on YAML front-matter delimiters
     if not prompty_content.startswith("---"):

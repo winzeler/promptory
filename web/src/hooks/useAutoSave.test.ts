@@ -12,12 +12,12 @@ describe("loadDraft", () => {
 
   it("returns parsed draft data", () => {
     const data = { name: "test", body: "Hello {{ name }}" };
-    localStorage.setItem("promptory_draft_test-key", JSON.stringify(data));
+    localStorage.setItem("promptdis_draft_test-key", JSON.stringify(data));
     expect(loadDraft("test-key")).toEqual(data);
   });
 
   it("returns null for invalid JSON", () => {
-    localStorage.setItem("promptory_draft_bad", "not-json{{{");
+    localStorage.setItem("promptdis_draft_bad", "not-json{{{");
     expect(loadDraft("bad")).toBeNull();
   });
 });
@@ -28,9 +28,9 @@ describe("clearDraft", () => {
   });
 
   it("removes the draft from localStorage", () => {
-    localStorage.setItem("promptory_draft_my-key", '{"data":"value"}');
+    localStorage.setItem("promptdis_draft_my-key", '{"data":"value"}');
     clearDraft("my-key");
-    expect(localStorage.getItem("promptory_draft_my-key")).toBeNull();
+    expect(localStorage.getItem("promptdis_draft_my-key")).toBeNull();
   });
 
   it("does not throw when key does not exist", () => {

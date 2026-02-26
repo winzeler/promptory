@@ -45,7 +45,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Try session cookie auth first
-        session_id = request.cookies.get("promptory_session")
+        session_id = request.cookies.get("promptdis_session")
         if session_id:
             user = await verify_session(db, session_id)
             if user:

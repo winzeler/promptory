@@ -117,7 +117,7 @@ async def github_callback(code: str, state: str, response: Response):
     # Redirect to frontend with session cookie
     redirect = RedirectResponse(f"{settings.frontend_url}/", status_code=302)
     redirect.set_cookie(
-        key="promptory_session",
+        key="promptdis_session",
         value=session_id,
         httponly=True,
         samesite="lax",
@@ -148,10 +148,10 @@ async def get_current_user(request: Request):
 @router.post("/logout")
 async def logout(request: Request, response: Response):
     """Clear the session cookie."""
-    session_id = request.cookies.get("promptory_session")
+    session_id = request.cookies.get("promptdis_session")
     if session_id:
         db = await get_db()
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         await db.commit()
-    response.delete_cookie("promptory_session")
+    response.delete_cookie("promptdis_session")
     return {"ok": True}

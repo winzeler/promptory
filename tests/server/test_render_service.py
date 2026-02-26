@@ -18,8 +18,8 @@ def test_basic_render():
 
 def test_multiple_variables():
     template = "{{ greeting }}, {{ name }}! Welcome to {{ place }}."
-    result = render_prompt(template, {"greeting": "Hi", "name": "Bob", "place": "Promptory"})
-    assert result == "Hi, Bob! Welcome to Promptory."
+    result = render_prompt(template, {"greeting": "Hi", "name": "Bob", "place": "Promptdis"})
+    assert result == "Hi, Bob! Welcome to Promptdis."
 
 
 def test_missing_variable_renders_empty():
