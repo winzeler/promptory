@@ -1,5 +1,5 @@
 [project]
-name = "promptory-server"
+name = "promptdis-server"
 version = "0.1.0"
 description = "Git-native LLM prompt management platform"
 readme = "README.md"

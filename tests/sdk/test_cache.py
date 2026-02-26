@@ -8,7 +8,7 @@ from pathlib import Path
 # Add SDK source to path so we can import without installing the SDK package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "sdk" / "src"))
 
-from promptory.cache import PromptCache  # noqa: E402
+from promptdis.cache import PromptCache  # noqa: E402
 
 
 def test_get_set():

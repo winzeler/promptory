@@ -13,7 +13,7 @@ async def test_health(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert data["service"] == "promptory"
+    assert data["service"] == "promptdis"
 
 
 @pytest.mark.asyncio

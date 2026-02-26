@@ -20,9 +20,9 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from promptory.client import PromptClient
-from promptory.async_client import AsyncPromptClient
-from promptory.exceptions import PromptoryError, NotFoundError, AuthenticationError, RateLimitError
+from promptdis.client import PromptClient
+from promptdis.async_client import AsyncPromptClient
+from promptdis.exceptions import PromptdisError, NotFoundError, AuthenticationError, RateLimitError
 
 
 # ---------------------------------------------------------------------------
@@ -121,12 +121,12 @@ class TestPromptClient:
             client.get("some-id")
         client.close()
 
-    def test_500_raises_promptory_error(self):
+    def test_500_raises_promptdis_error(self):
         transport = _mock_transport([(500, {"error": "server error"}, None)])
         client = PromptClient(base_url="http://test", api_key="test-key")
         client._http = httpx.Client(transport=transport, base_url="http://test/api/v1")
 
-        with pytest.raises(PromptoryError) as exc_info:
+        with pytest.raises(PromptdisError) as exc_info:
             client.get("some-id")
         assert exc_info.value.status_code == 500
         client.close()
@@ -201,14 +201,14 @@ class TestPromptClient:
             assert prompt.name == "greeting"
 
     def test_transport_error_no_cache_raises(self):
-        """Transport error with no cached entry raises PromptoryError."""
+        """Transport error with no cached entry raises PromptdisError."""
         transport = httpx.MockTransport(
             lambda req: (_ for _ in ()).throw(httpx.ConnectError("refused"))
         )
         client = PromptClient(base_url="http://test", api_key="test-key", retry_count=1)
         client._http = httpx.Client(transport=transport, base_url="http://test/api/v1")
 
-        with pytest.raises(PromptoryError, match="Failed to connect"):
+        with pytest.raises(PromptdisError, match="Failed to connect"):
             client.get("some-id")
         client.close()
 

@@ -51,7 +51,7 @@ async def admin_client(app, db):
     async with AsyncClient(
         transport=transport,
         base_url="http://test",
-        cookies={"promptory_session": sid},
+        cookies={"promptdis_session": sid},
     ) as ac:
         yield ac
 

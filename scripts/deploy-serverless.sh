@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Promptory serverless stack via AWS SAM.
+# Deploy Promptdis serverless stack via AWS SAM.
 # Usage: ./scripts/deploy-serverless.sh [--guided]
 set -euo pipefail
 

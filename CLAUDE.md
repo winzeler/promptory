@@ -1,8 +1,8 @@
-# CLAUDE.md — Promptory
+# CLAUDE.md — Promptdis
 
 ## What is this?
 
-Promptory is a Git-native LLM prompt management platform. Prompts are stored as `.md` files with YAML front-matter in GitHub repos (source of truth), edited via a web UI, and served via API/SDK for hot-reload.
+Promptdis is a Git-native LLM prompt management platform. Prompts are stored as `.md` files with YAML front-matter in GitHub repos (source of truth), edited via a web UI, and served via API/SDK for hot-reload.
 
 ## Tech Stack
 
@@ -14,7 +14,7 @@ Promptory is a Git-native LLM prompt management platform. Prompts are stored as 
 | Auth | GitHub OAuth SSO + bcrypt API keys |
 | Frontend | React 18 + Vite + TailwindCSS + TypeScript |
 | Editor | CodeMirror 6 |
-| SDK | Python package `promptory` |
+| SDK | Python package `promptdis` |
 
 ## Architecture
 
@@ -44,7 +44,7 @@ cd web && npm install && npm run dev
 - `server/api/admin.py` — Admin CRUD API
 - `server/services/github_service.py` — PyGithub wrapper
 - `server/services/sync_service.py` — GitHub → SQLite sync
-- `sdk/src/promptory/client.py` — Python SDK client
+- `sdk/src/promptdis/client.py` — Python SDK client
 
 ## Spec
 

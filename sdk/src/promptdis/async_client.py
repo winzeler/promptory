@@ -1,4 +1,4 @@
-"""Asynchronous Promptory client with caching."""
+"""Asynchronous Promptdis client with caching."""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ import random
 
 import httpx
 
-from promptory.cache import PromptCache
-from promptory.models import Prompt
-from promptory.exceptions import PromptoryError, NotFoundError, AuthenticationError
+from promptdis.cache import PromptCache
+from promptdis.models import Prompt
+from promptdis.exceptions import PromptdisError, NotFoundError, AuthenticationError
 
 logger = logging.getLogger(__name__)
 
 
 class AsyncPromptClient:
-    """Async client for fetching prompts from a Promptory server.
+    """Async client for fetching prompts from a Promptdis server.
 
     Usage:
         async with AsyncPromptClient(base_url="...", api_key="...") as client:
@@ -69,7 +69,7 @@ class AsyncPromptClient:
                 if attempt == self._retry_count - 1:
                     if entry:
                         return Prompt.from_api_response(entry.data)
-                    raise PromptoryError("Failed to connect to Promptory server")
+                    raise PromptdisError("Failed to connect to Promptdis server")
                 # Exponential backoff with jitter: 0.5s, 1s, 2s base
                 delay = (0.5 * (2 ** attempt)) + random.uniform(0, 0.25)
                 logger.debug("Retry %d/%d after %.2fs", attempt + 1, self._retry_count, delay)
@@ -83,7 +83,7 @@ class AsyncPromptClient:
         if resp.status_code == 404:
             raise NotFoundError(f"Prompt not found: {path}")
         if resp.status_code >= 400:
-            raise PromptoryError(f"API error: {resp.status_code}", status_code=resp.status_code)
+            raise PromptdisError(f"API error: {resp.status_code}", status_code=resp.status_code)
 
         data = resp.json()
         self._cache.put(cache_key, data, resp.headers.get("etag"))

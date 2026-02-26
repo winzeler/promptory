@@ -1,4 +1,4 @@
-package promptory
+package promptdis
 
 import (
 	"strings"

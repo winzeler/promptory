@@ -1,11 +1,11 @@
-# Promptory Go SDK
+# Promptdis Go SDK
 
-Go client for the [Promptory](https://github.com/futureself-app/promptory) prompt management API. Zero external dependencies — uses only the Go standard library.
+Go client for the [Promptdis](https://github.com/futureself-app/promptdis) prompt management API. Zero external dependencies — uses only the Go standard library.
 
 ## Installation
 
 ```bash
-go get github.com/futureself-app/promptory-go
+go get github.com/futureself-app/promptdis-go
 ```
 
 **Requirements:** Go 1.21+
@@ -20,11 +20,11 @@ import (
     "fmt"
     "log"
 
-    promptory "github.com/futureself-app/promptory-go"
+    promptdis "github.com/futureself-app/promptdis-go"
 )
 
 func main() {
-    client, err := promptory.NewClient(promptory.ClientOptions{
+    client, err := promptdis.NewClient(promptdis.ClientOptions{
         BaseURL: "https://prompts.futureself.app",
         APIKey:  "pm_live_...",
     })
@@ -58,7 +58,7 @@ func main() {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `BaseURL` | `string` | *required* | Promptory server URL |
+| `BaseURL` | `string` | *required* | Promptdis server URL |
 | `APIKey` | `string` | *required* | API key (`pm_live_...` or `pm_test_...`) |
 | `CacheMaxSize` | `int` | `100` | Maximum cached prompts (LRU eviction) |
 | `CacheTTL` | `time.Duration` | `60s` | Cache time-to-live |
@@ -84,7 +84,7 @@ prompt, err := client.GetByName(ctx, "futureself", "meditate", "meditation_scrip
 
 ```go
 prompt, err := client.GetByName(ctx, "futureself", "meditate", "meditation_script_relax",
-    promptory.WithEnvironment("production"),
+    promptdis.WithEnvironment("production"),
 )
 ```
 
@@ -180,23 +180,23 @@ import "errors"
 
 prompt, err := client.Get(ctx, "missing-id")
 
-if errors.Is(err, promptory.ErrNotFound) {
+if errors.Is(err, promptdis.ErrNotFound) {
     // 404 — prompt not found
 }
 
-if errors.Is(err, promptory.ErrAuthentication) {
+if errors.Is(err, promptdis.ErrAuthentication) {
     // 401 — invalid API key
 }
 
-if errors.Is(err, promptory.ErrRateLimit) {
+if errors.Is(err, promptdis.ErrRateLimit) {
     // 429 — rate limit exceeded
-    var rle *promptory.RateLimitError
+    var rle *promptdis.RateLimitError
     if errors.As(err, &rle) {
         fmt.Printf("Retry after %d seconds\n", rle.RetryAfter)
     }
 }
 
-var pe *promptory.PromptoryError
+var pe *promptdis.PromptdisError
 if errors.As(err, &pe) {
     fmt.Printf("Status %d: %s\n", pe.StatusCode, pe.Message)
 }
@@ -207,8 +207,8 @@ if errors.As(err, &pe) {
 | `ErrNotFound` | 404 | Prompt not found |
 | `ErrAuthentication` | 401 | Invalid or missing API key |
 | `ErrRateLimit` | 429 | Rate limit exceeded |
-| `PromptoryError` | any | Base error with `StatusCode` and `Message` |
-| `RateLimitError` | 429 | Extends `PromptoryError` with `RetryAfter` field |
+| `PromptdisError` | any | Base error with `StatusCode` and `Message` |
+| `RateLimitError` | 429 | Extends `PromptdisError` with `RetryAfter` field |
 
 ## Retry Logic
 

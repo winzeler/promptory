@@ -1,4 +1,4 @@
-"""Shared test fixtures for Promptory."""
+"""Shared test fixtures for Promptdis."""
 
 from __future__ import annotations
 

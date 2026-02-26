@@ -180,7 +180,7 @@ jobs:
           script: |
             const fs = require('fs');
             const body = fs.readFileSync('/tmp/eval-comment.md', 'utf8');
-            const marker = '<!-- promptory-eval-results -->';
+            const marker = '<!-- promptdis-eval-results -->';
 
             // Find existing comment to update (avoids duplicate comments on re-runs)
             const { data: comments } = await github.rest.issues.listComments({

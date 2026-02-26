@@ -1,6 +1,6 @@
 import { LRUCache } from "./cache.js";
 import {
-  PromptoryError,
+  PromptdisError,
   NotFoundError,
   AuthenticationError,
   RateLimitError,
@@ -120,7 +120,7 @@ export class PromptClient {
       return data;
     } catch (e) {
       // On network error, return cached if available
-      if (cached && !(e instanceof PromptoryError)) {
+      if (cached && !(e instanceof PromptdisError)) {
         return cached.value;
       }
       throw e;
@@ -178,7 +178,7 @@ export class PromptClient {
       }
     }
 
-    throw new PromptoryError(
+    throw new PromptdisError(
       `Request failed after ${this.maxRetries + 1} attempts: ${lastError?.message}`
     );
   }
@@ -201,7 +201,7 @@ export class PromptClient {
             : null
         );
       default:
-        throw new PromptoryError(`${resp.status}: ${message}`);
+        throw new PromptdisError(`${resp.status}: ${message}`);
     }
   }
 }
