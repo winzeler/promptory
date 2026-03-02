@@ -18,6 +18,8 @@ import {
   fetchPromptContentAtSha,
   batchUpdatePrompts,
   batchDeletePrompts,
+  createOrg,
+  createApp,
 } from "../api/prompts";
 
 export function useOrgs() {
@@ -29,6 +31,22 @@ export function useApps(orgId: string | null) {
     queryKey: ["apps", orgId],
     queryFn: () => fetchApps(orgId!),
     enabled: !!orgId,
+  });
+}
+
+export function useCreateOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createOrg,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orgs"] }),
+  });
+}
+
+export function useCreateApp(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Parameters<typeof createApp>[1]) => createApp(orgId, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["apps", orgId] }),
   });
 }
 

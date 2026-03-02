@@ -13,6 +13,7 @@ from server.db.queries import organizations as org_queries
 from server.db.queries import applications as app_queries
 from server.db.queries import prompts as prompt_queries
 from server.db.queries import analytics as analytics_queries
+from server.db.queries import users as user_queries
 from server.services.github_service import GitHubService
 from server.services.prompt_service import (
     create_prompt,
@@ -60,6 +61,25 @@ async def list_orgs(request: Request):
     db = await get_db()
     orgs = await org_queries.list_orgs_for_user(db, user["id"])
     return {"items": orgs}
+
+
+@router.post("/orgs")
+async def create_organization(request: Request):
+    user = _require_user(request)
+    db = await get_db()
+    body = await request.json()
+    github_owner = body.get("github_owner", "").strip()
+    if not github_owner:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "github_owner is required"}})
+    org_id = await org_queries.upsert_org(
+        db,
+        github_owner=github_owner,
+        display_name=body.get("display_name") or github_owner,
+        avatar_url=None,
+    )
+    await user_queries.upsert_org_membership(db, user["id"], org_id, role="admin")
+    org = await org_queries.get_org(db, org_id)
+    return org
 
 
 # ── Applications ──

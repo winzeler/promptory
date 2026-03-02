@@ -69,6 +69,17 @@ export async function fetchApps(orgId: string): Promise<App[]> {
   return resp.items;
 }
 
+export async function createOrg(data: { github_owner: string; display_name?: string }): Promise<Org> {
+  return apiFetch<Org>("/api/v1/admin/orgs", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function createApp(
+  orgId: string,
+  data: { github_repo: string; display_name?: string; default_branch?: string; subdirectory?: string }
+): Promise<App> {
+  return apiFetch<App>(`/api/v1/admin/orgs/${orgId}/apps`, { method: "POST", body: JSON.stringify(data) });
+}
+
 export async function fetchPrompts(
   appId: string,
   params?: Record<string, string>
