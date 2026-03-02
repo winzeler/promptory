@@ -20,6 +20,8 @@ import {
   batchDeletePrompts,
   createOrg,
   createApp,
+  fetchGitHubOrgs,
+  fetchGitHubRepos,
 } from "../api/prompts";
 
 export function useOrgs() {
@@ -47,6 +49,23 @@ export function useCreateApp(orgId: string) {
   return useMutation({
     mutationFn: (data: Parameters<typeof createApp>[1]) => createApp(orgId, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["apps", orgId] }),
+  });
+}
+
+export function useGitHubOrgs() {
+  return useQuery({
+    queryKey: ["github-orgs"],
+    queryFn: fetchGitHubOrgs,
+    staleTime: 60_000,
+  });
+}
+
+export function useGitHubRepos(orgLogin: string | null) {
+  return useQuery({
+    queryKey: ["github-repos", orgLogin],
+    queryFn: () => fetchGitHubRepos(orgLogin!),
+    enabled: !!orgLogin,
+    staleTime: 60_000,
   });
 }
 

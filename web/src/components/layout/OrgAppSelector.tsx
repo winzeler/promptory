@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useOrgs, useApps, useCreateOrg, useCreateApp } from "../../hooks/usePrompts";
+import { useOrgs, useApps, useCreateOrg, useCreateApp, useGitHubOrgs, useGitHubRepos } from "../../hooks/usePrompts";
 import Modal from "./Modal";
 
 export default function OrgAppSelector() {
@@ -12,16 +12,26 @@ export default function OrgAppSelector() {
   const [showAddOrg, setShowAddOrg] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
 
-  const [orgOwner, setOrgOwner] = useState("");
+  // Add Org state
+  const [selectedGHOwner, setSelectedGHOwner] = useState("");
   const [orgDisplayName, setOrgDisplayName] = useState("");
 
-  const [appRepo, setAppRepo] = useState("");
+  // Add App state
+  const [repoFilter, setRepoFilter] = useState("");
+  const [selectedRepo, setSelectedRepo] = useState<{ full_name: string; default_branch: string } | null>(null);
   const [appDisplayName, setAppDisplayName] = useState("");
   const [appBranch, setAppBranch] = useState("main");
   const [appSubdir, setAppSubdir] = useState("");
 
   const createOrg = useCreateOrg();
   const createApp = useCreateApp(selectedOrgId ?? "");
+
+  // GitHub discovery hooks — always called, conditional fetching via enabled
+  const { data: ghOrgs, isLoading: ghOrgsLoading, error: ghOrgsError } = useGitHubOrgs();
+
+  const selectedPdOrg = orgs?.find((o) => o.id === selectedOrgId);
+  const githubOwnerForApp = selectedPdOrg?.github_owner ?? null;
+  const { data: ghRepos, isLoading: ghReposLoading } = useGitHubRepos(showAddApp ? githubOwnerForApp : null);
 
   useEffect(() => {
     if (orgs && orgs.length > 0 && !selectedOrgId) {
@@ -31,14 +41,15 @@ export default function OrgAppSelector() {
 
   function handleAddOrgClose() {
     setShowAddOrg(false);
-    setOrgOwner("");
+    setSelectedGHOwner("");
     setOrgDisplayName("");
     createOrg.reset();
   }
 
   function handleAddAppClose() {
     setShowAddApp(false);
-    setAppRepo("");
+    setRepoFilter("");
+    setSelectedRepo(null);
     setAppDisplayName("");
     setAppBranch("main");
     setAppSubdir("");
@@ -47,15 +58,19 @@ export default function OrgAppSelector() {
 
   async function submitAddOrg(e: React.FormEvent) {
     e.preventDefault();
-    const org = await createOrg.mutateAsync({ github_owner: orgOwner, display_name: orgDisplayName || undefined });
+    const org = await createOrg.mutateAsync({
+      github_owner: selectedGHOwner,
+      display_name: orgDisplayName || undefined,
+    });
     setSelectedOrgId(org.id);
     handleAddOrgClose();
   }
 
   async function submitAddApp(e: React.FormEvent) {
     e.preventDefault();
+    if (!selectedRepo) return;
     const app = await createApp.mutateAsync({
-      github_repo: appRepo,
+      github_repo: selectedRepo.full_name,
       display_name: appDisplayName || undefined,
       default_branch: appBranch || "main",
       subdirectory: appSubdir || undefined,
@@ -63,6 +78,10 @@ export default function OrgAppSelector() {
     handleAddAppClose();
     navigate(`/apps/${app.id}/prompts`);
   }
+
+  const filteredRepos = ghRepos?.filter((r) =>
+    r.name.toLowerCase().includes(repoFilter.toLowerCase())
+  ) ?? [];
 
   return (
     <div className="space-y-2">
@@ -124,16 +143,41 @@ export default function OrgAppSelector() {
           <form onSubmit={submitAddOrg} className="space-y-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                GitHub owner <span className="text-red-500">*</span>
+                GitHub account <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                value={orgOwner}
-                onChange={(e) => setOrgOwner(e.target.value)}
-                placeholder="my-org or username"
-                required
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-              />
+              {ghOrgsLoading ? (
+                <p className="text-xs text-gray-400">Loading GitHub accounts…</p>
+              ) : ghOrgsError ? (
+                <p className="text-xs text-red-600">Failed to load GitHub accounts.</p>
+              ) : (
+                <div className="max-h-48 overflow-y-auto rounded border border-gray-200">
+                  {ghOrgs?.map((ghOrg) => (
+                    <button
+                      key={ghOrg.login}
+                      type="button"
+                      onClick={() => {
+                        setSelectedGHOwner(ghOrg.login);
+                        if (!orgDisplayName) setOrgDisplayName(ghOrg.login);
+                      }}
+                      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
+                        selectedGHOwner === ghOrg.login ? "bg-blue-50 font-medium" : ""
+                      }`}
+                    >
+                      {ghOrg.avatar_url && (
+                        <img
+                          src={ghOrg.avatar_url}
+                          alt={ghOrg.login}
+                          className="h-5 w-5 rounded-full"
+                        />
+                      )}
+                      <span className="flex-1 truncate">{ghOrg.login}</span>
+                      {ghOrg.description && (
+                        <span className="truncate text-xs text-gray-400">{ghOrg.description}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">Display name</label>
@@ -160,7 +204,7 @@ export default function OrgAppSelector() {
               </button>
               <button
                 type="submit"
-                disabled={createOrg.isPending}
+                disabled={!selectedGHOwner || createOrg.isPending}
                 className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {createOrg.isPending ? "Adding…" : "Add"}
@@ -179,12 +223,40 @@ export default function OrgAppSelector() {
               </label>
               <input
                 type="text"
-                value={appRepo}
-                onChange={(e) => setAppRepo(e.target.value)}
-                placeholder="owner/repo"
-                required
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                value={repoFilter}
+                onChange={(e) => setRepoFilter(e.target.value)}
+                placeholder="Filter repos…"
+                className="mb-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
               />
+              {ghReposLoading ? (
+                <p className="text-xs text-gray-400">Loading repos…</p>
+              ) : (
+                <div className="max-h-48 overflow-y-auto rounded border border-gray-200">
+                  {filteredRepos.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-gray-400">No repos found.</p>
+                  ) : (
+                    filteredRepos.map((repo) => (
+                      <button
+                        key={repo.full_name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedRepo({ full_name: repo.full_name, default_branch: repo.default_branch });
+                          setAppBranch(repo.default_branch);
+                          if (!appDisplayName) setAppDisplayName(repo.name);
+                        }}
+                        className={`flex w-full items-center justify-between px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
+                          selectedRepo?.full_name === repo.full_name ? "bg-blue-50 font-medium" : ""
+                        }`}
+                      >
+                        <span className="truncate">{repo.name}</span>
+                        <span className="ml-2 shrink-0 rounded bg-gray-100 px-1 py-0.5 text-xs text-gray-500">
+                          {repo.private ? "private" : "public"}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">Display name</label>
@@ -231,7 +303,7 @@ export default function OrgAppSelector() {
               </button>
               <button
                 type="submit"
-                disabled={createApp.isPending}
+                disabled={!selectedRepo || createApp.isPending}
                 className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {createApp.isPending ? "Adding…" : "Add"}

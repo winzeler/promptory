@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 
 import httpx
@@ -14,6 +15,8 @@ from server.db.queries import users as user_queries
 from server.db.queries import organizations as org_queries
 from server.services.state_store import get_state_store
 from server.utils.crypto import encrypt
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -43,8 +46,19 @@ async def github_login():
 
 
 @router.get("/github/callback")
-async def github_callback(code: str, state: str, response: Response):
+async def github_callback(
+    response: Response,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
     """Handle GitHub OAuth callback."""
+    if error or not code or not state:
+        reason = error or "missing_params"
+        logger.warning("GitHub OAuth error: %s — %s", reason, error_description)
+        return RedirectResponse(f"{settings.frontend_url}/login?error={reason}")
+
     # Verify CSRF state (atomic check-and-delete via StateStore)
     if not await _state_store.validate_state(state):
         return RedirectResponse(f"{settings.frontend_url}/login?error=invalid_state")
@@ -74,7 +88,12 @@ async def github_callback(code: str, state: str, response: Response):
 
         # Fetch user's orgs
         orgs_resp = await client.get(GITHUB_ORGS_URL, headers=headers)
-        github_orgs = orgs_resp.json() if orgs_resp.status_code == 200 else []
+        if orgs_resp.status_code == 200:
+            github_orgs = orgs_resp.json()
+            logger.info("Fetched %d orgs for user", len(github_orgs))
+        else:
+            github_orgs = []
+            logger.warning("Failed to fetch orgs: %s %s", orgs_resp.status_code, orgs_resp.text)
 
     db = await get_db()
 

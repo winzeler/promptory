@@ -47,6 +47,25 @@ class GitHubService:
             })
         return orgs
 
+    def list_org_repos(self, org_login: str) -> list[dict]:
+        """List repos for a specific org or personal account (owner-only)."""
+        gh_user = self.gh.get_user()
+        if org_login == gh_user.login:
+            source = gh_user.get_repos(type="owner", sort="updated")
+        else:
+            source = self.gh.get_organization(org_login).get_repos(sort="updated")
+        repos = []
+        for repo in source:
+            repos.append({
+                "full_name": repo.full_name,
+                "name": repo.name,
+                "owner": repo.owner.login,
+                "default_branch": repo.default_branch,
+                "private": repo.private,
+                "description": repo.description,
+            })
+        return repos
+
     def list_md_files(
         self, repo_full_name: str, subdirectory: str = "", branch: str = "main"
     ) -> list[dict]:

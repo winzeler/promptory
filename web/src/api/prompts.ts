@@ -80,6 +80,31 @@ export async function createApp(
   return apiFetch<App>(`/api/v1/admin/orgs/${orgId}/apps`, { method: "POST", body: JSON.stringify(data) });
 }
 
+export interface GitHubOrg {
+  login: string;
+  avatar_url: string;
+  description: string | null;
+}
+
+export interface GitHubRepo {
+  full_name: string;
+  name: string;
+  owner: string;
+  default_branch: string;
+  private: boolean;
+  description: string | null;
+}
+
+export async function fetchGitHubOrgs(): Promise<GitHubOrg[]> {
+  const resp = await apiFetch<{ items: GitHubOrg[] }>("/api/v1/admin/github/orgs");
+  return resp.items;
+}
+
+export async function fetchGitHubRepos(org: string): Promise<GitHubRepo[]> {
+  const resp = await apiFetch<{ items: GitHubRepo[] }>(`/api/v1/admin/github/repos?org=${encodeURIComponent(org)}`);
+  return resp.items;
+}
+
 export async function fetchPrompts(
   appId: string,
   params?: Record<string, string>

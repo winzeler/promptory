@@ -59,7 +59,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# Middleware order: Starlette LIFO — last added runs outermost (first).
+# We want: request → CORS → RateLimiter → Auth → route handlers
+# Add Auth first (innermost), then RateLimiter, then CORS last (outermost).
+# CORS must be outermost so it adds headers to ALL responses, including 401/429 errors.
+app.add_middleware(AuthMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -67,12 +72,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Middleware order: Starlette LIFO — last added runs outermost (first).
-# We want: request → RateLimiter → Auth → route handlers
-# So add Auth first, then RateLimiter (RateLimiter becomes outermost).
-app.add_middleware(AuthMiddleware)
-app.add_middleware(RateLimitMiddleware)
 
 # Import and register routers
 from server.auth.github_oauth import router as auth_router

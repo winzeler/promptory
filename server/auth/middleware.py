@@ -31,7 +31,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Skip auth for public paths
+        # Skip auth for preflight requests and public paths
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         if path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi"):
             return await call_next(request)
 

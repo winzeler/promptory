@@ -797,6 +797,36 @@ async def tts_preview(prompt_id: str, request: Request):
     return FileResponse(audio_url, media_type="audio/mpeg")
 
 
+# ── GitHub Discovery ──
+
+@router.get("/github/orgs")
+async def list_github_orgs(request: Request):
+    """List GitHub orgs + personal account available to the authenticated user."""
+    user = _require_user(request)
+    gh = _get_github_for_user(user)
+    try:
+        gh_user = gh.gh.get_user()
+        personal = {"login": gh_user.login, "avatar_url": gh_user.avatar_url, "description": "Personal account"}
+        orgs = gh.list_orgs()
+    finally:
+        gh.close()
+    return {"items": [personal] + orgs}
+
+
+@router.get("/github/repos")
+async def list_github_repos(request: Request, org: str):
+    """List repos for a specific GitHub org or personal account."""
+    user = _require_user(request)
+    gh = _get_github_for_user(user)
+    try:
+        repos = gh.list_org_repos(org)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={"error": {"code": "GITHUB_ERROR", "message": str(e)}})
+    finally:
+        gh.close()
+    return {"items": repos}
+
+
 # ── Sync ──
 
 @router.post("/sync")
