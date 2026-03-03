@@ -33,7 +33,7 @@ describe("apiFetch", () => {
     );
 
     await apiFetch("/api/v1/admin/orgs");
-    const [url, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(options.credentials).toBe("include");
     expect(options.headers["Content-Type"]).toBe("application/json");
   });

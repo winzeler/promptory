@@ -6,10 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from server.db.queries import prompts as prompt_queries
 from server.services.sync_service import _index_prompt_file, remove_file, sync_app, sync_single_file
 
-from tests.conftest import APP_ID, ORG_ID
+from tests.conftest import APP_ID
 
 
 SAMPLE_PROMPT_MD = """---

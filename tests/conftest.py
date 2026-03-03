@@ -1,4 +1,4 @@
-"""Shared test fixtures for Promptory."""
+"""Shared test fixtures for Promptdis."""
 
 from __future__ import annotations
 
@@ -25,12 +25,20 @@ MIGRATION_SQL = "\n".join(
 # Stable IDs for seed data
 ORG_ID = "org-test-001"
 APP_ID = "app-test-001"
+APP_ID_2 = "app-test-002"
 PROMPT_ID = "prompt-test-001"
+PROMPT_ID_2 = "prompt-test-002"
 USER_ID = "user-test-001"
 API_KEY_RAW = "pm_live_testkeyvalue1234567890abcdef"
 API_KEY_PREFIX = API_KEY_RAW[:12]
 API_KEY_HASH = bcrypt.hashpw(API_KEY_RAW.encode(), bcrypt.gensalt()).decode()
 API_KEY_ID = "key-test-001"
+
+# Scoped API key — only has access to APP_ID (app-test-001)
+SCOPED_API_KEY_RAW = "pm_live_scopedkeyvalue9876543210xyz"
+SCOPED_API_KEY_PREFIX = SCOPED_API_KEY_RAW[:12]
+SCOPED_API_KEY_HASH = bcrypt.hashpw(SCOPED_API_KEY_RAW.encode(), bcrypt.gensalt()).decode()
+SCOPED_API_KEY_ID = "key-test-002"
 
 FRONT_MATTER = json.dumps({
     "version": "1.0",
@@ -39,6 +47,15 @@ FRONT_MATTER = json.dumps({
     "role": "system",
     "model": {"default": "gemini-2.0-flash"},
     "_body": "Hello {{ name }}, welcome to {{ place }}.",
+})
+
+FRONT_MATTER_2 = json.dumps({
+    "version": "1.0",
+    "org": "testorg",
+    "app": "otherapp",
+    "role": "system",
+    "model": {"default": "gemini-2.0-flash"},
+    "_body": "Goodbye {{ name }}.",
 })
 
 
@@ -73,6 +90,25 @@ async def db():
     await conn.execute(
         "INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, scopes) VALUES (?, ?, ?, ?, ?, ?)",
         (API_KEY_ID, USER_ID, API_KEY_HASH, API_KEY_PREFIX, "test-key", None),
+    )
+
+    # Second application + prompt for cross-app scope testing
+    await conn.execute(
+        "INSERT INTO applications (id, org_id, github_repo, display_name) VALUES (?, ?, ?, ?)",
+        (APP_ID_2, ORG_ID, "testorg/otherapp", "Other App"),
+    )
+    await conn.execute(
+        "INSERT INTO prompts (id, app_id, name, file_path, domain, description, type, front_matter, body_hash, body, version, git_sha, active) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (PROMPT_ID_2, APP_ID_2, "farewell", "prompts/farewell.md", "test", "A farewell prompt", "chat",
+         FRONT_MATTER_2, "def456", "Goodbye {{ name }}.", "1.0", "cafebabe", 1),
+    )
+
+    # Scoped API key — only has access to APP_ID (app-test-001)
+    scoped_scopes = json.dumps({"app_ids": [APP_ID], "permissions": ["read"]})
+    await conn.execute(
+        "INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, scopes) VALUES (?, ?, ?, ?, ?, ?)",
+        (SCOPED_API_KEY_ID, USER_ID, SCOPED_API_KEY_HASH, SCOPED_API_KEY_PREFIX, "scoped-key", scoped_scopes),
     )
     await conn.commit()
     yield conn
@@ -130,3 +166,9 @@ async def client(app):
 def test_api_key() -> str:
     """Bearer token value for test API key."""
     return API_KEY_RAW
+
+
+@pytest.fixture
+def scoped_api_key() -> str:
+    """Bearer token value for scoped API key (access to APP_ID only)."""
+    return SCOPED_API_KEY_RAW

@@ -1,7 +1,7 @@
 {
-  "name": "@promptory/client",
+  "name": "@promptdis/client",
   "version": "0.1.0",
-  "description": "TypeScript SDK for Promptory — Git-native LLM prompt management",
+  "description": "TypeScript SDK for Promptdis — Git-native LLM prompt management",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

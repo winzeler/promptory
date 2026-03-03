@@ -1,18 +1,17 @@
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { StreamLanguage } from "@codemirror/language";
-import { LanguageSupport } from "@codemirror/language";
+import { StreamLanguage, LanguageSupport, type StreamParser } from "@codemirror/language";
 
 /**
  * Simple Jinja2 token highlighting using StreamLanguage.
  * Highlights {{ variables }}, {% tags %}, and {# comments #}.
  */
-const jinja2StreamParser = {
+const jinja2StreamParser: StreamParser<{ inBlock: string | null }> = {
   startState() {
-    return { inBlock: null as string | null };
+    return { inBlock: null };
   },
-  token(stream: { match: (re: RegExp) => string[] | null; next: () => string; eol: () => boolean }, state: { inBlock: string | null }) {
+  token(stream, state) {
     // Inside a Jinja2 block
     if (state.inBlock === "variable") {
       if (stream.match(/\}\}/)) { state.inBlock = null; return "atom"; }

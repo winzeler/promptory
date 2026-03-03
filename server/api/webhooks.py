@@ -10,7 +10,6 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from server.db.database import get_db
-from server.db.queries import applications as app_queries
 from server.services.cache_service import prompt_cache
 
 logger = logging.getLogger(__name__)

@@ -1,4 +1,4 @@
-package promptory
+package promptdis
 
 import (
 	"context"
@@ -170,9 +170,9 @@ func TestGet_ServerError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var pe *PromptoryError
+	var pe *PromptdisError
 	if !errors.As(err, &pe) {
-		t.Fatal("expected PromptoryError")
+		t.Fatal("expected PromptdisError")
 	}
 	if pe.StatusCode != 500 {
 		t.Errorf("StatusCode = %d, want 500", pe.StatusCode)

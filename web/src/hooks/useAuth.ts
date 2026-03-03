@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchCurrentUser, logout as logoutApi, User } from "../api/auth";
+import { fetchCurrentUser, logout as logoutApi } from "../api/auth";
 
 export function useAuth() {
   const queryClient = useQueryClient();

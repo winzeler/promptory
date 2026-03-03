@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from jinja2 import BaseLoader
+from jinja2.loaders import DictLoader
 from jinja2.sandbox import SandboxedEnvironment
 
 logger = logging.getLogger(__name__)
@@ -37,55 +39,37 @@ def render_prompt(template_body: str, variables: dict) -> str:
 
 _MAX_INCLUDE_DEPTH = 5
 
+_INCLUDE_RE = re.compile(r'\{%[-\s]*include\s+["\']([^"\']+)["\']')
 
-class PromptIncludeLoader(BaseLoader):
-    """Jinja2 loader that resolves {% include "name" %} from the prompt DB.
 
-    Looks up prompts by *name* within the same application. Enforces max
-    depth and circular-reference detection.
-    """
+async def _resolve_includes(
+    template_body: str,
+    db,
+    app_id: str,
+    resolved: dict[str, str],
+    seen: set[str],
+    depth: int,
+) -> None:
+    """Recursively resolve all {% include "name" %} references from the DB."""
+    import json
 
-    def __init__(self, db, app_id: str):
-        self._db = db
-        self._app_id = app_id
-        self._seen: set[str] = set()
-        self._depth = 0
-
-    def get_source(self, environment, template):
-        import asyncio
-
-        if self._depth >= _MAX_INCLUDE_DEPTH:
+    for name in _INCLUDE_RE.findall(template_body):
+        if depth >= _MAX_INCLUDE_DEPTH:
             raise ValueError(
                 f"Include depth exceeded maximum of {_MAX_INCLUDE_DEPTH}"
             )
 
-        if template in self._seen:
+        if name in seen:
             raise ValueError(
-                f"Circular include detected: '{template}' already included"
+                f"Circular include detected: '{name}' already included"
             )
 
-        self._seen.add(template)
-        self._depth += 1
+        if name in resolved:
+            continue
 
-        try:
-            source = asyncio.get_event_loop().run_until_complete(
-                self._load(template)
-            )
-        except RuntimeError:
-            # If we're inside an async context, use a synchronous fallback
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                source = pool.submit(
-                    asyncio.run, self._load(template)
-                ).result()
-
-        return source, template, lambda: False
-
-    async def _load(self, name: str) -> str:
-        import json
-        async with self._db.execute(
+        async with db.execute(
             "SELECT front_matter FROM prompts WHERE app_id = ? AND name = ? AND active = 1 LIMIT 1",
-            (self._app_id, name),
+            (app_id, name),
         ) as cursor:
             row = await cursor.fetchone()
 
@@ -93,7 +77,10 @@ class PromptIncludeLoader(BaseLoader):
             raise ValueError(f"Include not found: '{name}'")
 
         fm = json.loads(row["front_matter"] or "{}")
-        return fm.get("_body", "")
+        body = fm.get("_body", "")
+        resolved[name] = body
+
+        await _resolve_includes(body, db, app_id, resolved, seen | {name}, depth + 1)
 
 
 async def render_prompt_with_includes(
@@ -106,7 +93,10 @@ async def render_prompt_with_includes(
 
     Includes are resolved from the prompts table within the same application.
     """
-    loader = PromptIncludeLoader(db, app_id)
+    resolved: dict[str, str] = {}
+    await _resolve_includes(template_body, db, app_id, resolved, set(), 0)
+
+    loader = DictLoader(resolved)
     env = SandboxedEnvironment(
         loader=loader,
         autoescape=False,

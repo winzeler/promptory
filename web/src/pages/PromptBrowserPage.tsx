@@ -1,10 +1,13 @@
 import { useState, useCallback, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { usePromptList, useSyncApp, useBatchUpdate, useBatchDelete } from "../hooks/usePrompts";
 import { importPrompty } from "../api/prompts";
+import CreatePromptModal from "../components/editor/CreatePromptModal";
 
 export default function PromptBrowserPage() {
   const { appId } = useParams<{ appId: string }>();
+  const navigate = useNavigate();
+  const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [filterDomain, setFilterDomain] = useState("");
   const [filterEnv, setFilterEnv] = useState("");
@@ -106,6 +109,12 @@ export default function PromptBrowserPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
+          >
+            New Prompt
+          </button>
           <button
             onClick={() => {
               setSelectionMode(!selectionMode);
@@ -225,8 +234,15 @@ export default function PromptBrowserPage() {
       {isLoading ? (
         <div className="text-sm text-gray-500">Loading prompts...</div>
       ) : data?.items.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-          No prompts found. Sync from GitHub or create a new prompt.
+        <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center">
+          <p className="text-sm text-gray-500">No prompts yet.</p>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="mt-3 rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+          >
+            Create your first prompt
+          </button>
+          <p className="mt-2 text-xs text-gray-400">or Sync to import existing .md files from GitHub</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -303,6 +319,14 @@ export default function PromptBrowserPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {showCreate && appId && (
+        <CreatePromptModal
+          appId={appId}
+          onClose={() => setShowCreate(false)}
+          onCreated={(id) => navigate(`/prompts/${id}/edit`)}
+        />
       )}
     </div>
   );

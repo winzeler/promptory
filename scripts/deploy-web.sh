@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and deploy the Promptory web UI to S3 + CloudFront.
+# Build and deploy the Promptdis web UI to S3 + CloudFront.
 # Usage: ./scripts/deploy-web.sh --stack <stack-name>
 set -euo pipefail
 
@@ -17,7 +17,7 @@ done
 
 if [[ -z "$STACK_NAME" ]]; then
     echo "Error: --stack <stack-name> is required"
-    echo "Usage: $0 --stack promptory-dev"
+    echo "Usage: $0 --stack promptdis-dev"
     exit 1
 fi
 

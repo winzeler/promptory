@@ -18,6 +18,10 @@ import {
   fetchPromptContentAtSha,
   batchUpdatePrompts,
   batchDeletePrompts,
+  createOrg,
+  createApp,
+  fetchGitHubOrgs,
+  fetchGitHubRepos,
 } from "../api/prompts";
 
 export function useOrgs() {
@@ -29,6 +33,39 @@ export function useApps(orgId: string | null) {
     queryKey: ["apps", orgId],
     queryFn: () => fetchApps(orgId!),
     enabled: !!orgId,
+  });
+}
+
+export function useCreateOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createOrg,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orgs"] }),
+  });
+}
+
+export function useCreateApp(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Parameters<typeof createApp>[1]) => createApp(orgId, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["apps", orgId] }),
+  });
+}
+
+export function useGitHubOrgs() {
+  return useQuery({
+    queryKey: ["github-orgs"],
+    queryFn: fetchGitHubOrgs,
+    staleTime: 60_000,
+  });
+}
+
+export function useGitHubRepos(orgLogin: string | null) {
+  return useQuery({
+    queryKey: ["github-repos", orgLogin],
+    queryFn: () => fetchGitHubRepos(orgLogin!),
+    enabled: !!orgLogin,
+    staleTime: 60_000,
   });
 }
 

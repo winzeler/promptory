@@ -4,8 +4,9 @@ export type { Prompt } from "./models.js";
 export { renderLocal } from "./models.js";
 export { LRUCache } from "./cache.js";
 export {
-  PromptoryError,
+  PromptdisError,
   NotFoundError,
   AuthenticationError,
+  ForbiddenError,
   RateLimitError,
 } from "./errors.js";

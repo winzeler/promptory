@@ -1,4 +1,4 @@
-"""EventBridge-triggered Lambda handler — cleans up expired Promptory sessions.
+"""EventBridge-triggered Lambda handler — cleans up expired Promptdis sessions.
 
 Replaces the `_session_cleanup_loop()` asyncio background task used in
 container mode. Scheduled via EventBridge at rate(1 hour).

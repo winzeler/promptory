@@ -8,7 +8,7 @@ export function useAutoSave(key: string, data: unknown) {
   useEffect(() => {
     timerRef.current = setInterval(() => {
       try {
-        localStorage.setItem(`promptory_draft_${key}`, JSON.stringify(data));
+        localStorage.setItem(`promptdis_draft_${key}`, JSON.stringify(data));
       } catch {
         // Storage full or unavailable
       }
@@ -22,7 +22,7 @@ export function useAutoSave(key: string, data: unknown) {
 
 export function loadDraft<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(`promptory_draft_${key}`);
+    const raw = localStorage.getItem(`promptdis_draft_${key}`);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -30,5 +30,5 @@ export function loadDraft<T>(key: string): T | null {
 }
 
 export function clearDraft(key: string) {
-  localStorage.removeItem(`promptory_draft_${key}`);
+  localStorage.removeItem(`promptdis_draft_${key}`);
 }

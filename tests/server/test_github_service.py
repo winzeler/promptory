@@ -6,7 +6,7 @@ All PyGithub calls are mocked — no actual GitHub API calls are made.
 from __future__ import annotations
 
 import base64
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -77,7 +77,7 @@ class TestListMdFiles:
     def test_lists_md_files_empty_repo(self, gh_service):
         repo = MagicMock()
         gh_service.gh.get_repo.return_value = repo
-        repo.get_contents.return_value = []
+        repo.get_contents = MagicMock(return_value=[])
 
         result = gh_service.list_md_files("owner/repo")
         assert result == []
@@ -95,7 +95,7 @@ class TestListMdFiles:
         repo = MagicMock()
         gh_service.gh.get_repo.return_value = repo
         file1 = _make_content_file("greeting.md", "src/prompts/greeting.md")
-        repo.get_contents.return_value = [file1]
+        repo.get_contents = MagicMock(return_value=[file1])
 
         result = gh_service.list_md_files("owner/repo", subdirectory="src/prompts")
         repo.get_contents.assert_called_with("src/prompts", ref="main")
@@ -159,14 +159,20 @@ class TestGetFileHistory:
 
         commits = []
         for i in range(25):
+            date_mock = MagicMock()
+            date_mock.isoformat = MagicMock(return_value="2026-01-01")
+            author_mock = MagicMock()
+            author_mock.name = "User"
+            author_mock.date = date_mock
+            commit_inner = MagicMock()
+            commit_inner.message = f"Commit {i}"
+            commit_inner.author = author_mock
             c = MagicMock()
             c.sha = f"sha-{i}"
-            c.commit.message = f"Commit {i}"
-            c.commit.author.name = "User"
-            c.commit.author.date.isoformat.return_value = "2026-01-01"
+            c.commit = commit_inner
             commits.append(c)
 
-        repo.get_commits.return_value = commits
+        repo.get_commits = MagicMock(return_value=commits)
 
         result = gh_service.get_file_history("owner/repo", "file.md", limit=5)
         assert len(result) == 5

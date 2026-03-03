@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Promptory Serverless Deployment — FastAPI on Lambda with EFS-backed SQLite,
+  Promptdis Serverless Deployment — FastAPI on Lambda with EFS-backed SQLite,
   DynamoDB OAuth state, S3 TTS cache, and CloudFront-served web UI.
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ Globals:
     Environment:
       Variables:
         DEPLOYMENT_MODE: lambda
-        DATABASE_PATH: /mnt/efs/data/promptory.db
+        DATABASE_PATH: /mnt/efs/data/promptdis.db
         DYNAMODB_STATE_TABLE: !Ref OAuthStateTable
         S3_TTS_BUCKET: !Ref TTSCacheBucket
         GITHUB_CLIENT_ID: !Ref GitHubClientId
@@ -92,7 +92,7 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "promptory-${Stage}-vpc"
+          Value: !Sub "promptdis-${Stage}-vpc"
 
   PrivateSubnetA:
     Type: AWS::EC2::Subnet
@@ -102,7 +102,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "promptory-${Stage}-subnet-a"
+          Value: !Sub "promptdis-${Stage}-subnet-a"
 
   PrivateSubnetB:
     Type: AWS::EC2::Subnet
@@ -112,7 +112,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "promptory-${Stage}-subnet-b"
+          Value: !Sub "promptdis-${Stage}-subnet-b"
 
   # ───────────────────────────────────────────────────────────────────────────
   # EFS (SQLite storage — persists across Lambda invocations)
@@ -125,7 +125,7 @@ Resources:
       ThroughputMode: bursting
       Tags:
         - Key: Name
-          Value: !Sub "promptory-${Stage}-efs"
+          Value: !Sub "promptdis-${Stage}-efs"
 
   MountTargetA:
     Type: AWS::EFS::MountTarget
@@ -155,7 +155,7 @@ Resources:
           OwnerUid: "1000"
           OwnerGid: "1000"
           Permissions: "755"
-        Path: "/promptory"
+        Path: "/promptdis"
 
   EFSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -174,7 +174,7 @@ Resources:
   OAuthStateTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub "promptory-oauth-states-${Stage}"
+      TableName: !Sub "promptdis-oauth-states-${Stage}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: state
@@ -192,7 +192,7 @@ Resources:
   TTSCacheBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "promptory-tts-cache-${Stage}"
+      BucketName: !Sub "promptdis-tts-cache-${Stage}"
       LifecycleConfiguration:
         Rules:
           - Id: ExpireTTSCache
@@ -205,7 +205,7 @@ Resources:
   WebBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "promptory-web-${Stage}"
+      BucketName: !Sub "promptdis-web-${Stage}"
 
   WebBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -229,7 +229,7 @@ Resources:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
       OriginAccessControlConfig:
-        Name: !Sub "promptory-web-oac-${Stage}"
+        Name: !Sub "promptdis-web-oac-${Stage}"
         OriginAccessControlOriginType: s3
         SigningBehavior: always
         SigningProtocol: sigv4
@@ -259,7 +259,7 @@ Resources:
             ResponsePagePath: /index.html
         Enabled: true
         HttpVersion: http2and3
-        Comment: !Sub "Promptory Web UI (${Stage})"
+        Comment: !Sub "Promptdis Web UI (${Stage})"
 
   # ───────────────────────────────────────────────────────────────────────────
   # Lambda — API (Mangum + FastAPI)
@@ -267,7 +267,7 @@ Resources:
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "promptory-${Stage}-api"
+      FunctionName: !Sub "promptdis-${Stage}-api"
       Handler: server.lambda_handler.handler
       CodeUri: ..
       MemorySize: 512
@@ -302,7 +302,7 @@ Resources:
   CleanupFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "promptory-${Stage}-cleanup"
+      FunctionName: !Sub "promptdis-${Stage}-cleanup"
       Handler: scripts.cleanup_sessions_handler.handler
       CodeUri: ..
       Timeout: 60
@@ -321,7 +321,7 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: "rate(1 hour)"
-            Description: Clean up expired Promptory sessions
+            Description: Clean up expired Promptdis sessions
 
   # ───────────────────────────────────────────────────────────────────────────
   # API Gateway (HTTP API v2)
@@ -353,11 +353,11 @@ Resources:
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Promptory Lambda function security group
+      GroupDescription: Promptdis Lambda function security group
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub "promptory-${Stage}-lambda-sg"
+          Value: !Sub "promptdis-${Stage}-lambda-sg"
 
   # ───────────────────────────────────────────────────────────────────────────
   # CloudWatch Alarms
@@ -365,7 +365,7 @@ Resources:
   ApiErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "promptory-${Stage}-api-errors"
+      AlarmName: !Sub "promptdis-${Stage}-api-errors"
       AlarmDescription: Lambda API function errors exceed threshold
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -381,7 +381,7 @@ Resources:
   ApiDurationAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "promptory-${Stage}-api-duration"
+      AlarmName: !Sub "promptdis-${Stage}-api-duration"
       AlarmDescription: Lambda API function duration exceeds threshold
       MetricName: Duration
       Namespace: AWS/Lambda
@@ -397,7 +397,7 @@ Resources:
   ApiThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "promptory-${Stage}-api-throttles"
+      AlarmName: !Sub "promptdis-${Stage}-api-throttles"
       AlarmDescription: Lambda API function throttled
       MetricName: Throttles
       Namespace: AWS/Lambda

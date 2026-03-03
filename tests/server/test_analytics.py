@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
@@ -54,7 +52,7 @@ async def admin_client(app, db):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test",
-        cookies={"promptory_session": sid},
+        cookies={"promptdis_session": sid},
     ) as ac:
         yield ac
 

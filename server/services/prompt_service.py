@@ -15,11 +15,7 @@ from server.services.sync_service import sync_single_file
 from server.utils.front_matter import (
     parse_prompt_file,
     serialize_prompt_file,
-    ensure_id,
     ensure_version,
-    body_hash,
-    front_matter_to_json,
-    extract_tags,
 )
 from server.utils.validators import validate_front_matter
 
@@ -131,7 +127,7 @@ async def create_prompt(
         file_path = f"{subdir}/{data['name']}.md".lstrip("/")
 
     # Commit to GitHub
-    commit_sha = github.create_file(
+    github.create_file(
         app["github_repo"],
         file_path,
         file_content,

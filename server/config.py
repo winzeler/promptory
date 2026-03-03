@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
 
     # Database
-    database_path: str = "./data/promptory.db"
+    database_path: str = "./data/promptdis.db"
 
     # Logging
     log_level: str = "info"
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # AWS (Lambda mode only)
     aws_region: str = "us-west-2"
-    dynamodb_state_table: str = "promptory-oauth-states"
+    dynamodb_state_table: str = "promptdis-oauth-states"
     s3_tts_bucket: str = ""
 
     # ElevenLabs TTS

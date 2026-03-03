@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Circle background -->
+  <circle cx="32" cy="32" r="30" fill="#1f2937" />
+
+  <!-- Left angle bracket < -->
+  <polyline points="22,20 10,32 22,44" fill="none" stroke="#f9fafb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Right angle bracket > -->
+  <polyline points="42,20 54,32 42,44" fill="none" stroke="#f9fafb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Lightning bolt in center -->
+  <polygon points="36,14 26,34 33,34 28,50 38,30 31,30" fill="#3b82f6" />
+</svg>

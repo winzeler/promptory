@@ -1,8 +1,8 @@
-package promptory
+package promptdis
 
 import "regexp"
 
-// Prompt represents a prompt returned from the Promptory API.
+// Prompt represents a prompt returned from the Promptdis API.
 type Prompt struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`

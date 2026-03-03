@@ -1,4 +1,4 @@
-"""Promptory data models."""
+"""Promptdis data models."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ _jinja_env = SandboxedEnvironment(autoescape=False, keep_trailing_newline=True)
 
 @dataclass
 class Prompt:
-    """A prompt fetched from the Promptory server."""
+    """A prompt fetched from the Promptdis server."""
 
     id: str
     name: str

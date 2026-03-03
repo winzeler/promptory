@@ -1,4 +1,4 @@
-package promptory
+package promptdis
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// ClientOptions configures a new Promptory Client.
+// ClientOptions configures a new Promptdis Client.
 type ClientOptions struct {
-	// BaseURL is the Promptory server URL (required).
+	// BaseURL is the Promptdis server URL (required).
 	BaseURL string
 
 	// APIKey is the API key for authentication (required).
@@ -38,7 +38,7 @@ type ClientOptions struct {
 	HTTPClient *http.Client
 }
 
-// Client is the Promptory SDK client. It is safe for concurrent use.
+// Client is the Promptdis SDK client. It is safe for concurrent use.
 type Client struct {
 	baseURL    string
 	apiKey     string
@@ -47,14 +47,14 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// NewClient creates a new Promptory Client with the given options.
+// NewClient creates a new Promptdis Client with the given options.
 // BaseURL and APIKey are required; other fields have sensible defaults.
 func NewClient(opts ClientOptions) (*Client, error) {
 	if opts.BaseURL == "" {
-		return nil, &PromptoryError{Message: "BaseURL is required"}
+		return nil, &PromptdisError{Message: "BaseURL is required"}
 	}
 	if opts.APIKey == "" {
-		return nil, &PromptoryError{Message: "APIKey is required"}
+		return nil, &PromptdisError{Message: "APIKey is required"}
 	}
 
 	if opts.CacheMaxSize <= 0 {
@@ -131,7 +131,7 @@ func (c *Client) Render(ctx context.Context, promptID string, variables map[stri
 	body := map[string]interface{}{"variables": variables}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
-		return nil, &PromptoryError{Message: "failed to marshal variables: " + err.Error()}
+		return nil, &PromptdisError{Message: "failed to marshal variables: " + err.Error()}
 	}
 
 	resp, err := c.doRequest(ctx, http.MethodPost, path, bodyBytes)
@@ -146,7 +146,7 @@ func (c *Client) Render(ctx context.Context, promptID string, variables map[stri
 
 	var result RenderResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, &PromptoryError{Message: "failed to decode render response: " + err.Error()}
+		return nil, &PromptdisError{Message: "failed to decode render response: " + err.Error()}
 	}
 	return &result, nil
 }
@@ -210,7 +210,7 @@ func (c *Client) fetchWithCache(ctx context.Context, path, cacheKey string) (*Pr
 		apiErr := c.handleError(resp)
 		// On server error, return stale cache if available
 		if cached != nil {
-			pe, ok := apiErr.(*PromptoryError)
+			pe, ok := apiErr.(*PromptdisError)
 			if ok && pe.StatusCode >= 500 {
 				return cached.value, nil
 			}
@@ -220,7 +220,7 @@ func (c *Client) fetchWithCache(ctx context.Context, path, cacheKey string) (*Pr
 
 	var prompt Prompt
 	if err := json.NewDecoder(resp.Body).Decode(&prompt); err != nil {
-		return nil, &PromptoryError{Message: "failed to decode prompt: " + err.Error()}
+		return nil, &PromptdisError{Message: "failed to decode prompt: " + err.Error()}
 	}
 
 	etag := resp.Header.Get("ETag")
@@ -244,7 +244,7 @@ func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, 
 
 		req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 		if err != nil {
-			return nil, &PromptoryError{Message: "failed to create request: " + err.Error()}
+			return nil, &PromptdisError{Message: "failed to create request: " + err.Error()}
 		}
 
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -259,7 +259,7 @@ func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, 
 			if attempt < c.maxRetries {
 				delay := backoffDelay(attempt, 0)
 				if err := sleepCtx(ctx, delay); err != nil {
-					return nil, &PromptoryError{Message: "request cancelled"}
+					return nil, &PromptdisError{Message: "request cancelled"}
 				}
 			}
 			continue
@@ -276,7 +276,7 @@ func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, 
 			resp.Body.Close()
 			delay := backoffDelay(attempt, retryAfter)
 			if err := sleepCtx(ctx, delay); err != nil {
-				return nil, &PromptoryError{Message: "request cancelled"}
+				return nil, &PromptdisError{Message: "request cancelled"}
 			}
 			continue
 		}
@@ -284,7 +284,7 @@ func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, 
 		return resp, nil
 	}
 
-	return nil, &PromptoryError{
+	return nil, &PromptdisError{
 		Message: fmt.Sprintf("request failed after %d attempts: %v", c.maxRetries+1, lastErr),
 	}
 }
@@ -304,9 +304,9 @@ func (c *Client) handleError(resp *http.Response) error {
 
 	switch resp.StatusCode {
 	case 401:
-		return &PromptoryError{StatusCode: 401, Message: message}
+		return &PromptdisError{StatusCode: 401, Message: message}
 	case 404:
-		return &PromptoryError{StatusCode: 404, Message: message}
+		return &PromptdisError{StatusCode: 404, Message: message}
 	case 429:
 		retryAfter := 0
 		if raHeader := resp.Header.Get("Retry-After"); raHeader != "" {
@@ -315,11 +315,11 @@ func (c *Client) handleError(resp *http.Response) error {
 			}
 		}
 		return &RateLimitError{
-			PromptoryError: PromptoryError{StatusCode: 429, Message: "rate limit exceeded"},
+			PromptdisError: PromptdisError{StatusCode: 429, Message: "rate limit exceeded"},
 			RetryAfter:     retryAfter,
 		}
 	default:
-		return &PromptoryError{
+		return &PromptdisError{
 			StatusCode: resp.StatusCode,
 			Message:    message,
 		}

@@ -10,15 +10,26 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from server.db.database import get_db
 from server.db.queries import prompts as prompt_queries
-from server.services.prompt_service import get_prompt_with_content, get_prompt_by_name_with_content
 from server.services.github_service import GitHubService
 from server.services.render_service import render_prompt, render_prompt_with_includes
 from server.services.cache_service import prompt_cache
-from server.utils.crypto import decrypt
+from server.auth.api_keys import check_scope
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/prompts", tags=["prompts"])
+
+
+def _enforce_app_scope(request: Request, app_id: str | None) -> None:
+    """Raise 403 if the API key's scopes don't include the prompt's app."""
+    scopes = getattr(request.state, "api_key_scopes", None)
+    if scopes is None:
+        return  # session auth or no scopes set
+    if not check_scope(scopes, app_id=app_id):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": {"code": "FORBIDDEN", "message": "API key does not have access to this application"}},
+        )
 
 
 def _get_github(request: Request) -> GitHubService:
@@ -41,6 +52,7 @@ async def get_prompt(prompt_id: str, request: Request, response: Response):
     # Check cache
     cached, etag, is_fresh = prompt_cache.get(f"id:{prompt_id}")
     if cached and is_fresh:
+        _enforce_app_scope(request, cached.get("app_id"))
         if if_none_match and if_none_match == etag:
             _log_access(request, prompt_id, cached.get("name"), True, start)
             return Response(status_code=304)
@@ -55,6 +67,8 @@ async def get_prompt(prompt_id: str, request: Request, response: Response):
     if not prompt:
         raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": f"No prompt found with id '{prompt_id}'"}})
 
+    _enforce_app_scope(request, prompt.get("app_id"))
+
     # Build response from SQLite metadata (avoid GitHub API call for basic fetch)
     fm = json.loads(prompt.get("front_matter", "{}"))
     tags = prompt.get("tags", "[]")
@@ -66,6 +80,7 @@ async def get_prompt(prompt_id: str, request: Request, response: Response):
 
     result = {
         "id": prompt["id"],
+        "app_id": prompt.get("app_id"),
         "name": prompt["name"],
         "version": fm.get("version", prompt.get("version", "")),
         "org": fm.get("org", ""),
@@ -115,6 +130,7 @@ async def get_prompt_by_name(
     # Check cache
     cached, etag, is_fresh = prompt_cache.get(cache_key)
     if cached and is_fresh:
+        _enforce_app_scope(request, cached.get("app_id"))
         if if_none_match and if_none_match == etag:
             _log_access(request, cached.get("id", ""), name, True, start)
             return Response(status_code=304)
@@ -128,6 +144,8 @@ async def get_prompt_by_name(
     app = await prompt_queries.find_app_by_org_and_repo(db, org, app_name)
     if not app:
         raise HTTPException(status_code=404, detail={"error": {"code": "APP_NOT_FOUND", "message": f"No app found for {org}/{app_name}"}})
+
+    _enforce_app_scope(request, app["id"])
 
     prompt = await prompt_queries.get_prompt_by_name(db, app["id"], name, environment)
     if not prompt:
@@ -143,6 +161,7 @@ async def get_prompt_by_name(
 
     result = {
         "id": prompt["id"],
+        "app_id": app["id"],
         "name": prompt["name"],
         "version": fm.get("version", prompt.get("version", "")),
         "org": org,
@@ -188,6 +207,8 @@ async def render_prompt_endpoint(prompt_id: str, request: Request):
     prompt = await prompt_queries.get_prompt(db, prompt_id)
     if not prompt:
         raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": f"No prompt found with id '{prompt_id}'"}})
+
+    _enforce_app_scope(request, prompt.get("app_id"))
 
     fm = json.loads(prompt.get("front_matter", "{}"))
     template_body = fm.get("_body", "")

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePromptDetail, useUpdatePrompt, usePromptHistory, usePromptContentAtSha } from "../hooks/usePrompts";
 import { useAutoSave } from "../hooks/useAutoSave";
-import { exportPrompty } from "../api/prompts";
+import { exportPrompty, PromptDetail } from "../api/prompts";
 import MarkdownEditor from "../components/editor/MarkdownEditor";
 import FrontMatterForm from "../components/editor/FrontMatterForm";
 import DiffViewer from "../components/editor/DiffViewer";
@@ -340,7 +340,7 @@ export default function PromptEditorPage() {
   );
 }
 
-function extractFrontMatter(prompt: Record<string, unknown>): Record<string, unknown> {
+function extractFrontMatter(prompt: PromptDetail): Record<string, unknown> {
   const { body: _body, git_sha: _sha, updated_at: _upd, ...fm } = prompt;
-  return fm;
+  return fm as Record<string, unknown>;
 }

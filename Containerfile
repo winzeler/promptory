@@ -1,12 +1,12 @@
-# Promptory API — multi-stage build
-# Build: podman build -t promptory -f Containerfile .
-#   (or: docker build -t promptory .)
+# Promptdis API — multi-stage build
+# Build: podman build -t promptdis -f Containerfile .
+#   (or: docker build -t promptdis .)
 
 # ── Builder ──────────────────────────────────────────────
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir --prefix=/install .
 
 # ── Runtime ──────────────────────────────────────────────

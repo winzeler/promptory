@@ -47,16 +47,16 @@ jobs:
       - name: Build API container
         run: |
           if command -v podman &>/dev/null; then
-            podman build -t promptory -f Containerfile .
+            podman build -t promptdis -f Containerfile .
           else
-            docker build -t promptory -f Containerfile .
+            docker build -t promptdis -f Containerfile .
           fi
       - name: Build Web container
         run: |
           if command -v podman &>/dev/null; then
-            podman build -t promptory-web -f web/Containerfile web/
+            podman build -t promptdis-web -f web/Containerfile web/
           else
-            docker build -t promptory-web -f web/Containerfile web/
+            docker build -t promptdis-web -f web/Containerfile web/
           fi
 
   deploy-serverless:
@@ -90,4 +90,4 @@ jobs:
 
       - name: Deploy web UI
         run: |
-          ./scripts/deploy-web.sh --stack "${{ vars.SAM_STACK_NAME || 'promptory-dev' }}"
+          ./scripts/deploy-web.sh --stack "${{ vars.SAM_STACK_NAME || 'promptdis-dev' }}"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import Any
 
 from github import Github, GithubException, InputGitAuthor
 
@@ -46,6 +45,25 @@ class GitHubService:
                 "description": org.description,
             })
         return orgs
+
+    def list_org_repos(self, org_login: str) -> list[dict]:
+        """List repos for a specific org or personal account (owner-only)."""
+        gh_user = self.gh.get_user()
+        if org_login == gh_user.login:
+            source = gh_user.get_repos(type="owner", sort="updated")
+        else:
+            source = self.gh.get_organization(org_login).get_repos(sort="updated")
+        repos = []
+        for repo in source:
+            repos.append({
+                "full_name": repo.full_name,
+                "name": repo.name,
+                "owner": repo.owner.login,
+                "default_branch": repo.default_branch,
+                "private": repo.private,
+                "description": repo.description,
+            })
+        return repos
 
     def list_md_files(
         self, repo_full_name: str, subdirectory: str = "", branch: str = "main"
@@ -165,13 +183,10 @@ class GitHubService:
         if author_name and author_email:
             author = InputGitAuthor(author_name, author_email)
 
-        result = repo.create_file(
-            path=file_path,
-            message=commit_message,
-            content=content,
-            branch=branch,
-            author=author,
-        )
+        kwargs: dict = dict(path=file_path, message=commit_message, content=content, branch=branch)
+        if author:
+            kwargs["author"] = author
+        result = repo.create_file(**kwargs)
         return result["commit"].sha
 
     def update_file(
@@ -191,14 +206,10 @@ class GitHubService:
         if author_name and author_email:
             author = InputGitAuthor(author_name, author_email)
 
-        result = repo.update_file(
-            path=file_path,
-            message=commit_message,
-            content=content,
-            sha=sha,
-            branch=branch,
-            author=author,
-        )
+        kwargs: dict = dict(path=file_path, message=commit_message, content=content, sha=sha, branch=branch)
+        if author:
+            kwargs["author"] = author
+        result = repo.update_file(**kwargs)
         return result["commit"].sha
 
     def delete_file(

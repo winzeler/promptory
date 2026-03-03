@@ -1,12 +1,12 @@
-// Package promptory provides a Go client for the Promptory prompt management API.
+// Package promptdis provides a Go client for the Promptdis prompt management API.
 //
-// Promptory is a centralized prompt management platform that stores, versions,
+// Promptdis is a centralized prompt management platform that stores, versions,
 // and serves LLM prompts. This SDK provides type-safe access with built-in
 // caching, retry logic, and error handling.
 //
 // # Quick Start
 //
-//	client, err := promptory.NewClient(promptory.ClientOptions{
+//	client, err := promptdis.NewClient(promptdis.ClientOptions{
 //	    BaseURL: "https://prompts.futureself.app",
 //	    APIKey:  "pm_live_...",
 //	})
@@ -33,4 +33,4 @@
 //   - Basic {{var}} local rendering
 //   - Zero external dependencies (stdlib only)
 //   - Goroutine-safe (sync.RWMutex protected cache)
-package promptory
+package promptdis

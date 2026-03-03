@@ -1,4 +1,4 @@
-/** Prompt data returned from the Promptory API. */
+/** Prompt data returned from the Promptdis API. */
 export interface Prompt {
   id: string;
   name: string;

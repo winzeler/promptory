@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Promptdis Logo Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; color: #1f2937; padding: 40px; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    .subtitle { color: #6b7280; margin-bottom: 40px; }
+    .options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; max-width: 1000px; }
+    .option { background: white; border-radius: 12px; padding: 24px; border: 2px solid #e5e7eb; transition: border-color 0.2s; }
+    .option:hover { border-color: #3b82f6; }
+    .option h2 { font-size: 18px; margin-bottom: 4px; }
+    .option .desc { color: #6b7280; font-size: 14px; margin-bottom: 20px; }
+    .sizes { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+    .size-group { text-align: center; }
+    .size-group img { display: block; margin: 0 auto 6px; }
+    .size-label { font-size: 11px; color: #9ca3af; }
+    .dark-row { background: #1f2937; border-radius: 8px; padding: 16px; margin-top: 16px; display: flex; align-items: center; gap: 16px; }
+    .dark-row img { display: block; }
+    .dark-row .wordmark { color: #f9fafb; font-size: 20px; font-weight: bold; }
+    .favicon-test { margin-top: 40px; background: white; border-radius: 12px; padding: 24px; border: 2px solid #e5e7eb; max-width: 1000px; }
+    .favicon-test h2 { margin-bottom: 16px; }
+    .tab-bar { display: flex; gap: 0; background: #e5e7eb; border-radius: 8px 8px 0 0; padding: 4px 4px 0; }
+    .tab { background: white; border-radius: 6px 6px 0 0; padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .tab img { width: 16px; height: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Promptdis Logo Options</h1>
+  <p class="subtitle">Compare all 3 concepts at multiple sizes. Pick your favorite.</p>
+
+  <div class="options">
+    <!-- Option A -->
+    <div class="option">
+      <h2>A: Cursor + Git Branch</h2>
+      <p class="desc">Terminal prompt with git fork. Developer-focused.</p>
+      <div class="sizes">
+        <div class="size-group">
+          <img src="logo-a-cursor-branch.svg" width="16" height="16" />
+          <span class="size-label">16px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-a-cursor-branch.svg" width="32" height="32" />
+          <span class="size-label">32px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-a-cursor-branch.svg" width="64" height="64" />
+          <span class="size-label">64px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-a-cursor-branch.svg" width="128" height="128" />
+          <span class="size-label">128px</span>
+        </div>
+      </div>
+      <div class="dark-row">
+        <img src="logo-a-cursor-branch.svg" width="32" height="32" />
+        <span class="wordmark">Promptdis</span>
+      </div>
+    </div>
+
+    <!-- Option B -->
+    <div class="option">
+      <h2>B: Chat Bubble + Doc</h2>
+      <p class="desc">Speech bubble with prompt lines. SaaS-friendly.</p>
+      <div class="sizes">
+        <div class="size-group">
+          <img src="logo-b-bubble-doc.svg" width="16" height="16" />
+          <span class="size-label">16px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-b-bubble-doc.svg" width="32" height="32" />
+          <span class="size-label">32px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-b-bubble-doc.svg" width="64" height="64" />
+          <span class="size-label">64px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-b-bubble-doc.svg" width="128" height="128" />
+          <span class="size-label">128px</span>
+        </div>
+      </div>
+      <div class="dark-row">
+        <img src="logo-b-bubble-doc.svg" width="32" height="32" />
+        <span class="wordmark">Promptdis</span>
+      </div>
+    </div>
+
+    <!-- Option C -->
+    <div class="option">
+      <h2>C: Brackets + Lightning</h2>
+      <p class="desc">Angle brackets with bolt. API-first vibe.</p>
+      <div class="sizes">
+        <div class="size-group">
+          <img src="logo-c-brackets-bolt.svg" width="16" height="16" />
+          <span class="size-label">16px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-c-brackets-bolt.svg" width="32" height="32" />
+          <span class="size-label">32px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-c-brackets-bolt.svg" width="64" height="64" />
+          <span class="size-label">64px</span>
+        </div>
+        <div class="size-group">
+          <img src="logo-c-brackets-bolt.svg" width="128" height="128" />
+          <span class="size-label">128px</span>
+        </div>
+      </div>
+      <div class="dark-row">
+        <img src="logo-c-brackets-bolt.svg" width="32" height="32" />
+        <span class="wordmark">Promptdis</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Favicon simulation -->
+  <div class="favicon-test">
+    <h2>Browser Tab Preview</h2>
+    <div class="tab-bar">
+      <div class="tab">
+        <img src="logo-a-cursor-branch.svg" /> Promptdis (A)
+      </div>
+      <div class="tab">
+        <img src="logo-b-bubble-doc.svg" /> Promptdis (B)
+      </div>
+      <div class="tab">
+        <img src="logo-c-brackets-bolt.svg" /> Promptdis (C)
+      </div>
+    </div>
+  </div>
+</body>
+</html>

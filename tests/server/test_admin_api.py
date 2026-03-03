@@ -7,7 +7,6 @@ update, delete, history, diff, rollback) are tested with mocked GitHub service.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,7 +50,7 @@ async def admin_client(app, db):
     async with AsyncClient(
         transport=transport,
         base_url="http://test",
-        cookies={"promptory_session": sid},
+        cookies={"promptdis_session": sid},
     ) as ac:
         yield ac
 
@@ -87,7 +86,8 @@ async def test_list_apps(admin_client):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["items"]) >= 1
-    assert data["items"][0]["id"] == APP_ID
+    app_ids = [item["id"] for item in data["items"]]
+    assert APP_ID in app_ids
 
 
 @pytest.mark.asyncio

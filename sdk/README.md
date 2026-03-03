@@ -1,19 +1,19 @@
-# promptory
+# promptdis
 
-Python SDK for [Promptory](https://github.com/futureself-app/promptory) — Git-native LLM prompt management.
+Python SDK for [Promptdis](https://github.com/futureself-app/promptdis) — Git-native LLM prompt management.
 
-Fetch, cache, and render LLM prompts from a Promptory server. Supports both sync and async clients with built-in LRU caching, ETag revalidation, and retry logic.
+Fetch, cache, and render LLM prompts from a Promptdis server. Supports both sync and async clients with built-in LRU caching, ETag revalidation, and retry logic.
 
 ## Installation
 
 ```bash
-pip install promptory
+pip install promptdis
 ```
 
 For async support with HTTP/2:
 
 ```bash
-pip install "promptory[async]"
+pip install "promptdis[async]"
 ```
 
 **Requirements:** Python 3.10+
@@ -21,7 +21,7 @@ pip install "promptory[async]"
 ## Quick Start
 
 ```python
-from promptory import PromptClient
+from promptdis import PromptClient
 
 client = PromptClient(
     base_url="http://localhost:8000",
@@ -58,7 +58,7 @@ with PromptClient(base_url="http://localhost:8000", api_key="pm_live_...") as cl
 
 ```python
 import asyncio
-from promptory import AsyncPromptClient
+from promptdis import AsyncPromptClient
 
 async def main():
     async with AsyncPromptClient(
@@ -80,8 +80,8 @@ Both `PromptClient` and `AsyncPromptClient` accept the same options:
 
 ```python
 client = PromptClient(
-    base_url="http://localhost:8000",  # Promptory server URL
-    api_key="pm_live_...",              # API key (generate in Promptory web UI)
+    base_url="http://localhost:8000",  # Promptdis server URL
+    api_key="pm_live_...",              # API key (generate in Promptdis web UI)
     cache_ttl=300,          # Cache TTL in seconds (default: 300)
     cache_max_size=1000,    # Max cached prompts (default: 1000)
     timeout=10.0,           # Request timeout in seconds (default: 10.0)
@@ -91,7 +91,7 @@ client = PromptClient(
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `base_url` | (required) | Promptory server URL |
+| `base_url` | (required) | Promptdis server URL |
 | `api_key` | (required) | API key starting with `pm_live_` or `pm_test_` |
 | `cache_ttl` | `300` | Seconds before a cached entry is considered stale |
 | `cache_max_size` | `1000` | Max entries in LRU cache before eviction |
@@ -226,8 +226,8 @@ removed = client.cache_invalidate_all()
 ## Error Handling
 
 ```python
-from promptory import PromptoryError, NotFoundError, AuthenticationError
-from promptory.exceptions import RateLimitError
+from promptdis import PromptdisError, NotFoundError, AuthenticationError
+from promptdis.exceptions import RateLimitError
 
 try:
     prompt = client.get("missing-id")
@@ -237,7 +237,7 @@ except AuthenticationError:
     print("Invalid or expired API key")
 except RateLimitError as e:
     print(f"Rate limited. Retry after {e.retry_after}s")
-except PromptoryError as e:
+except PromptdisError as e:
     print(f"API error (HTTP {e.status_code}): {e}")
 ```
 
@@ -245,17 +245,17 @@ except PromptoryError as e:
 
 | Exception | HTTP Status | Attributes | Description |
 |-----------|-------------|------------|-------------|
-| `PromptoryError` | any | `status_code` | Base exception for all SDK errors |
+| `PromptdisError` | any | `status_code` | Base exception for all SDK errors |
 | `NotFoundError` | 404 | `status_code` | Prompt or resource not found |
 | `AuthenticationError` | 401 | `status_code` | Invalid or missing API key |
 | `RateLimitError` | 429 | `status_code`, `retry_after` | Rate limit exceeded |
 
 ## Integration Example
 
-Using Promptory with a generic LLM client:
+Using Promptdis with a generic LLM client:
 
 ```python
-from promptory import AsyncPromptClient
+from promptdis import AsyncPromptClient
 
 prompt_client = AsyncPromptClient(
     base_url="https://prompts.example.com",

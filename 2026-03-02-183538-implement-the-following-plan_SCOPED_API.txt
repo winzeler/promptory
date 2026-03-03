@@ -1,0 +1,1461 @@
+
+ ▐▛███▜▌   Claude Code v2.1.63
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Plan: Enforce Application-Scoped API Keys                                    │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ API keys in Promptdis currently grant unrestricted access to all prompts     │
+│ across all applications. The infrastructure for scoping exists               │
+│ (check_scope(), parse_scopes(), scopes column) but is never called from the  │
+│ public API. This change wires up enforcement so keys are scoped to specific  │
+│ applications, updates the frontend to allow app selection during key         │
+│ creation, adds tests, and updates all relevant documentation.                │
+│                                                                              │
+│ Backward compatibility: Keys with scopes=NULL (all existing keys) continue   │
+│ to access everything. Only keys created with explicit app_ids are            │
+│ restricted.                                                                  │
+│                                                                              │
+│ ---                                                                          │
+│ Files to Modify                                                              │
+│                                                                              │
+│ Backend (4 files)                                                            │
+│                                                                              │
+│ 1. server/api/public.py — Enforce scopes on all 3 public endpoints           │
+│                                                                              │
+│ - Add _enforce_app_scope(request, app_id) helper that calls existing         │
+│ check_scope() from server/auth/api_keys.py                                   │
+│ - Returns 403 FORBIDDEN if app_ids is non-empty and doesn't include the      │
+│ prompt's app_id                                                              │
+│ - Add app_id to cached result dicts so scope checks work on cache hits too   │
+│ - Wire into:                                                                 │
+│   - GET /prompts/{prompt_id} — check after DB fetch and on cache hits        │
+│   - GET /prompts/by-name/{org}/{app_name}/{name} — check after app lookup    │
+│ and on cache hits                                                            │
+│   - POST /prompts/{prompt_id}/render — check after DB fetch                  │
+│                                                                              │
+│ 2. server/api/api_keys.py — Validate app_ids on key creation                 │
+│                                                                              │
+│ - In create_api_key(): require app_ids (non-empty list) on every new key     │
+│ creation                                                                     │
+│ - Validate each app_id exists via app_queries.get_app()                      │
+│ - Return 400 if app_ids is missing or empty                                  │
+│ - Existing keys with scopes=NULL are grandfathered (backward compatible at   │
+│ runtime) but no new unscoped keys can be created                             │
+│                                                                              │
+│ 3. server/db/queries/api_keys.py — Add list-apps-for-key query               │
+│                                                                              │
+│ - Add get_apps_for_key(db, key_id) — joins api_keys.scopes JSON against      │
+│ applications table to return app names for display in the key list           │
+│                                                                              │
+│ 4. sdk/src/promptdis/exceptions.py + client.py + async_client.py — Handle    │
+│ 403                                                                          │
+│                                                                              │
+│ - Add ForbiddenError(PromptdisError) with status_code=403                    │
+│ - In both client.py:_fetch_from_api() and async_client.py:_fetch_from_api(): │
+│  add if resp.status_code == 403: raise ForbiddenError(...) before the        │
+│ generic >= 400 check                                                         │
+│                                                                              │
+│ 5. sdk-ts/src/errors.ts + sdk-ts/src/client.ts — Handle 403                  │
+│                                                                              │
+│ - Add ForbiddenError class                                                   │
+│ - Add 403 check in the fetch method                                          │
+│                                                                              │
+│ Frontend (1 file)                                                            │
+│                                                                              │
+│ 6. web/src/pages/ApiKeysPage.tsx — App selection UI                          │
+│                                                                              │
+│ - Add org dropdown using existing fetchOrgs() from web/src/api/prompts.ts    │
+│ - Add app checkbox list using existing fetchApps(orgId)                      │
+│ - Send scopes: { app_ids: [...], permissions: ["read"] } in the create       │
+│ mutation body                                                                │
+│ - Add "Apps" column to the key list table showing scoped app count or "All   │
+│ apps"                                                                        │
+│ - Tighten ApiKey.scopes interface to { app_ids: string[]; permissions:       │
+│ string[] } | null                                                            │
+│                                                                              │
+│ Tests (2 files)                                                              │
+│                                                                              │
+│ 7. tests/conftest.py — Add scoped test fixtures                              │
+│                                                                              │
+│ - Add APP_ID_2, PROMPT_ID_2 — a second app+prompt for cross-app testing      │
+│ - Add SCOPED_API_KEY_RAW/HASH/ID — a key with scopes={"app_ids":             │
+│ ["app-test-001"], "permissions": ["read"]}                                   │
+│ - Seed second app, second prompt, and scoped key in the db fixture           │
+│ - Add scoped_api_key fixture                                                 │
+│                                                                              │
+│ 8. tests/server/test_public_api.py — Add scope enforcement tests             │
+│                                                                              │
+│ New tests (~6):                                                              │
+│ - test_scoped_key_can_access_allowed_app — scoped key fetches prompt in      │
+│ allowed app → 200                                                            │
+│ - test_scoped_key_blocked_from_other_app — scoped key fetches prompt in      │
+│ other app → 403                                                              │
+│ - test_unscoped_key_accesses_all — NULL-scoped key accesses prompt in any    │
+│ app → 200                                                                    │
+│ - test_scoped_key_render_blocked — scoped key cannot render prompt in        │
+│ disallowed app → 403                                                         │
+│ - test_scoped_key_by_name_blocked — scoped key cannot fetch by name in       │
+│ disallowed app → 403                                                         │
+│ - test_scoped_key_by_name_allowed — scoped key can fetch by name in allowed  │
+│ app → 200                                                                    │
+│                                                                              │
+│ Documentation (5 files)                                                      │
+│                                                                              │
+│ 9. README.md                                                                 │
+│                                                                              │
+│ - Update "Configuration Reference" API keys section to mention scoping       │
+│ - Update test count (308 → ~314)                                             │
+│                                                                              │
+│ 10. RUNBOOK.md                                                               │
+│                                                                              │
+│ - Update Section 7 (Secret Management) API key creation examples to include  │
+│ scopes                                                                       │
+│ - Add note about 403 in troubleshooting section                              │
+│                                                                              │
+│ 11. ../dwight_docs/prompt_mgmt/PROMPT_APP.md                                 │
+│                                                                              │
+│ - Update Section 3.2 to note that scope enforcement is now implemented (not  │
+│ just designed)                                                               │
+│ - Add 403 to the public API status codes                                     │
+│                                                                              │
+│ 12. ../dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md                         │
+│                                                                              │
+│ - Add 403 Forbidden to status code tables for all 3 public endpoints         │
+│ - Update POST /admin/api-keys request example to show scopes with app_ids    │
+│ - Add note about scope enforcement semantics                                 │
+│                                                                              │
+│ 13. CLAUDE.md                                                                │
+│                                                                              │
+│ - No changes needed (already references auth at a high level)                │
+│                                                                              │
+│ ---                                                                          │
+│ Key Existing Code to Reuse                                                   │
+│                                                                              │
+│ ┌───────────────────────┬─────────────────────────────┬───────────────────┐  │
+│ │       Function        │            File             │   What it does    │  │
+│ ├───────────────────────┼─────────────────────────────┼───────────────────┤  │
+│ │ check_scope(scopes,   │                             │ Already validates │  │
+│ │ org_id, app_id,       │ server/auth/api_keys.py:58  │  app_ids          │  │
+│ │ permission)           │                             │ membership — just │  │
+│ │                       │                             │  need to call it  │  │
+│ ├───────────────────────┼─────────────────────────────┼───────────────────┤  │
+│ │                       │                             │ Already returns   │  │
+│ │ parse_scopes(scopes_j │ server/auth/api_keys.py:48  │ {"app_ids":[],    │  │
+│ │ son)                  │                             │ "permissions":["r │  │
+│ │                       │                             │ ead"]} for NULL   │  │
+│ ├───────────────────────┼─────────────────────────────┼───────────────────┤  │
+│ │ request.state.api_key │ server/auth/middleware.py:6 │ Already set on    │  │
+│ │ _scopes               │ 4                           │ every API key     │  │
+│ │                       │                             │ request           │  │
+│ ├───────────────────────┼─────────────────────────────┼───────────────────┤  │
+│ │ fetchOrgs() /         │ web/src/api/prompts.ts:60,6 │ Already fetch     │  │
+│ │ fetchApps(orgId)      │ 5                           │ org/app lists for │  │
+│ │                       │                             │  the selector     │  │
+│ ├───────────────────────┼─────────────────────────────┼───────────────────┤  │
+│ │ app_queries.get_app(d │ server/db/queries/applicati │ Validates app_id  │  │
+│ │ b, app_id)            │ ons.py:17                   │ exists            │  │
+│ └───────────────────────┴─────────────────────────────┴───────────────────┘  │
+│                                                                              │
+│ ---                                                                          │
+│ Implementation Order                                                         │
+│                                                                              │
+│ 1. Backend enforcement (public.py) + validation (api_keys.py)                │
+│ 2. SDK error classes (Python + TypeScript)                                   │
+│ 3. Test fixtures (conftest.py) + scope tests (test_public_api.py)            │
+│ 4. Run tests to verify                                                       │
+│ 5. Frontend (ApiKeysPage.tsx)                                                │
+│ 6. Documentation updates (README, RUNBOOK, PROMPT_APP, API_DOCS)             │
+│                                                                              │
+│ ---                                                                          │
+│ Verification                                                                 │
+│                                                                              │
+│ 1. python -m pytest tests/ -v — all existing tests pass + 6 new scope tests  │
+│ pass                                                                         │
+│ 2. cd web && npx tsc --noEmit — frontend type checks                         │
+│ 3. Manual: create a scoped key in the UI, use it via curl to fetch an        │
+│ allowed prompt (200) and a disallowed prompt (403)                           │
+│ 4. Manual: verify existing keys with scopes=NULL still access everything     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ I'll start by reading the key files I need to modify to understand the current
+   implementation.
+
+⏺ Read 4 files (ctrl+o to expand)
+
+⏺ Now let me read the remaining files I need to modify.
+
+⏺ Read 4 files (ctrl+o to expand)
+
+⏺ Let me read the remaining files needed for this implementation.
+
+⏺ Read 5 files (ctrl+o to expand)
+
+⏺ Now let me check for the TS SDK and documentation files.
+
+⏺ Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+⏺ Let me read the TS SDK files and the external docs.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Now let me create the task list and start implementing. Let me also check the
+  external docs quickly.
+
+⏺ Starting with the backend scope enforcement in public.py.
+
+⏺ Update(server/api/public.py)
+  ⎿  Added 1 line
+      15  from server.services.render_service import render_prompt, rende
+          r_prompt_with_includes
+      16  from server.services.cache_service import prompt_cache
+      17  from server.utils.crypto import decrypt
+      18 +from server.auth.api_keys import check_scope                   
+      19  
+      20  logger = logging.getLogger(__name__)
+      21  
+
+⏺ Now add the _enforce_app_scope helper and wire it into all three endpoints.
+
+⏺ Update(server/api/public.py)
+  ⎿  Added 12 lines
+      22  router = APIRouter(prefix="/api/v1/prompts", tags=["prompts"])
+      23  
+      24  
+      25 +def _enforce_app_scope(request: Request, app_id: str | None) ->
+         + None:                                                         
+      26 +    """Raise 403 if the API key's scopes don't include the prom
+         +pt's app."""                                                   
+      27 +    scopes = getattr(request.state, "api_key_scopes", None)    
+      28 +    if scopes is None:                                         
+      29 +        return  # session auth or no scopes set                
+      30 +    if not check_scope(scopes, app_id=app_id):                 
+      31 +        raise HTTPException(                                   
+      32 +            status_code=403,                                   
+      33 +            detail={"error": {"code": "FORBIDDEN", "message": "
+         +API key does not have access to this application"}},           
+      34 +        )                                                      
+      35 +                                                               
+      36 +                                                               
+      37  def _get_github(request: Request) -> GitHubService:
+      38      """Get a GitHubService using the API key owner's token, or 
+          a default if available."""
+      39      # For API key auth, we need a GitHub token. Use the key own
+          er's token.
+
+⏺ Now wire scope enforcement into the get_prompt endpoint (by ID). I need to add
+   app_id to the result dict and check scopes on both cache hits and DB fetches.
+
+⏺ Update(server/api/public.py)
+  ⎿  Added 4 lines
+      54      # Check cache
+      55      cached, etag, is_fresh = prompt_cache.get(f"id:{prompt_id}"
+          )
+      56      if cached and is_fresh:
+      57 +        _enforce_app_scope(request, cached.get("app_id"))      
+      58          if if_none_match and if_none_match == etag:
+      59              _log_access(request, prompt_id, cached.get("name"),
+           True, start)
+      60              return Response(status_code=304)
+     ...
+      69      if not prompt:
+      70          raise HTTPException(status_code=404, detail={"error": {
+          "code": "PROMPT_NOT_FOUND", "message": f"No prompt found with i
+          d '{prompt_id}'"}})
+      71  
+      72 +    _enforce_app_scope(request, prompt.get("app_id"))          
+      73 +                                                               
+      74      # Build response from SQLite metadata (avoid GitHub API cal
+          l for basic fetch)
+      75      fm = json.loads(prompt.get("front_matter", "{}"))
+      76      tags = prompt.get("tags", "[]")
+     ...
+      82  
+      83      result = {
+      84          "id": prompt["id"],
+      85 +        "app_id": prompt.get("app_id"),                        
+      86          "name": prompt["name"],
+      87          "version": fm.get("version", prompt.get("version", ""))
+          ,
+      88          "org": fm.get("org", ""),
+
+⏺ Now wire it into the get_prompt_by_name endpoint.
+
+⏺ Update(server/api/public.py)
+  ⎿  Added 3 lines
+      132      # Check cache
+      133      cached, etag, is_fresh = prompt_cache.get(cache_key)
+      134      if cached and is_fresh:
+      135 +        _enforce_app_scope(request, cached.get("app_id"))     
+      136          if if_none_match and if_none_match == etag:
+      137              _log_access(request, cached.get("id", ""), name, T
+           rue, start)
+      138              return Response(status_code=304)
+     ...
+      147      if not app:
+      148          raise HTTPException(status_code=404, detail={"error": 
+           {"code": "APP_NOT_FOUND", "message": f"No app found for {org}/
+           {app_name}"}})
+      149  
+      150 +    _enforce_app_scope(request, app["id"])                    
+      151 +                                                              
+      152      prompt = await prompt_queries.get_prompt_by_name(db, app["
+           id"], name, environment)
+      153      if not prompt:
+      154          raise HTTPException(status_code=404, detail={"error": 
+           {"code": "PROMPT_NOT_FOUND", "message": f"No prompt found: {or
+           g}/{app_name}/{name}"}})
+
+⏺ Add app_id to the by-name result dict:
+
+⏺ Update(server/api/public.py)
+  ⎿  Added 1 line
+      163  
+      164      result = {
+      165          "id": prompt["id"],
+      166 +        "app_id": app["id"],                                  
+      167          "name": prompt["name"],
+      168          "version": fm.get("version", prompt.get("version", "")
+           ),
+      169          "org": org,
+
+⏺ Now wire into the render endpoint:
+
+⏺ Update(server/api/public.py)
+  ⎿  Added 2 lines
+      210      if not prompt:
+      211          raise HTTPException(status_code=404, detail={"error": 
+           {"code": "PROMPT_NOT_FOUND", "message": f"No prompt found with
+            id '{prompt_id}'"}})
+      212  
+      213 +    _enforce_app_scope(request, prompt.get("app_id"))         
+      214 +                                                              
+      215      fm = json.loads(prompt.get("front_matter", "{}"))
+      216      template_body = fm.get("_body", "")
+      217      includes = fm.get("includes", [])
+
+⏺ Now update the API key creation endpoint to validate app_ids:
+
+⏺ Update(server/api/api_keys.py)
+  ⎿  Added 1 line
+       8  
+       9  from server.db.database import get_db
+      10  from server.db.queries import api_keys as key_queries
+      11 +from server.db.queries import applications as app_queries      
+      12  from server.auth.api_keys import generate_api_key
+      13  
+      14  router = APIRouter(prefix="/api/v1/admin/api-keys", tags=["api-
+          keys"])
+
+⏺ Update(server/api/api_keys.py)
+  ⎿  Added 17 lines, removed 1 line
+      49          raise HTTPException(status_code=400, detail={"error": {
+          "code": "VALIDATION_ERROR", "message": "name is required"}})
+      50  
+      51      scopes = body.get("scopes")
+      52 -    scopes_json = json.dumps(scopes) if scopes else None       
+      52 +    if not scopes or not scopes.get("app_ids"):                
+      53 +        raise HTTPException(                                   
+      54 +            status_code=400,                                   
+      55 +            detail={"error": {"code": "VALIDATION_ERROR", "mess
+         +age": "scopes.app_ids is required and must be a non-empty list"
+         +}},                                                            
+      56 +        )                                                      
+      57 +                                                               
+      58 +    # Validate each app_id exists                              
+      59 +    for aid in scopes["app_ids"]:                              
+      60 +        app_record = await app_queries.get_app(db, aid)        
+      61 +        if not app_record:                                     
+      62 +            raise HTTPException(                               
+      63 +                status_code=400,                               
+      64 +                detail={"error": {"code": "VALIDATION_ERROR", "
+         +message": f"Application '{aid}' not found"}},                  
+      65 +            )                                                  
+      66 +                                                               
+      67 +    scopes.setdefault("permissions", ["read"])                 
+      68 +    scopes_json = json.dumps(scopes)                           
+      69      expires_at = body.get("expires_at")
+      70  
+      71      full_key, key_hash, key_prefix = generate_api_key()
+
+⏺ Now add the get_apps_for_key query to the DB queries file, and enrich the key
+  list endpoint to return app names:
+
+⏺ Update(server/db/queries/api_keys.py)
+  ⎿  Added 28 lines
+      59      return result.rowcount > 0
+      60  
+      61  
+      62 +async def get_apps_for_key(db: aiosqlite.Connection, key_id: st
+         +r) -> list[dict]:                                              
+      63 +    """Return applications linked to a key's scopes.app_ids JSO
+         +N array."""                                                    
+      64 +    async with db.execute(                                     
+      65 +        "SELECT scopes FROM api_keys WHERE id = ?", (key_id,)  
+      66 +    ) as cursor:                                               
+      67 +        row = await cursor.fetchone()                          
+      68 +        if not row or not row["scopes"]:                       
+      69 +            return []                                          
+      70 +                                                               
+      71 +    import json                                                
+      72 +    try:                                                       
+      73 +        scopes = json.loads(row["scopes"])                     
+      74 +    except (json.JSONDecodeError, TypeError):                  
+      75 +        return []                                              
+      76 +                                                               
+      77 +    app_ids = scopes.get("app_ids", [])                        
+      78 +    if not app_ids:                                            
+      79 +        return []                                              
+      80 +                                                               
+      81 +    placeholders = ",".join("?" for _ in app_ids)              
+      82 +    async with db.execute(                                     
+      83 +        f"SELECT id, display_name FROM applications WHERE id IN
+         + ({placeholders})",                                            
+      84 +        app_ids,                                               
+      85 +    ) as cursor:                                               
+      86 +        rows = await cursor.fetchall()                         
+      87 +        return [dict(r) for r in rows]                         
+      88 +                                                               
+      89 +                                                               
+      90  async def update_last_used(db: aiosqlite.Connection, key_id: st
+          r) -> None:
+      91      await db.execute(
+      92          "UPDATE api_keys SET last_used_at = datetime('now') WHE
+          RE id = ?", (key_id,)
+
+⏺ Now add ForbiddenError to both Python and TypeScript SDKs:
+
+⏺ Update(sdk/src/promptdis/exceptions.py)
+  ⎿  Added 7 lines
+      23          super().__init__(message, status_code=401)
+      24  
+      25  
+      26 +class ForbiddenError(PromptdisError):                          
+      27 +    """API key does not have access to the requested resource."
+         +""                                                             
+      28 +                                                               
+      29 +    def __init__(self, message: str = "Forbidden"):            
+      30 +        super().__init__(message, status_code=403)             
+      31 +                                                               
+      32 +                                                               
+      33  class RateLimitError(PromptdisError):
+      34      """Rate limit exceeded."""
+      35  
+
+⏺ Now update the Python sync client to handle 403:
+
+⏺ Update(sdk/src/promptdis/client.py)
+  ⎿  Added 1 line, removed 1 line
+      11  
+      12  from promptdis.cache import PromptCache
+      13  from promptdis.models import Prompt
+      14 -from promptdis.exceptions import PromptdisError, NotFoundError,
+         - AuthenticationError                                           
+      14 +from promptdis.exceptions import PromptdisError, NotFoundError,
+         + AuthenticationError, ForbiddenError                           
+      15  
+      16  logger = logging.getLogger(__name__)
+      17  
+
+⏺ Update(sdk/src/promptdis/client.py)
+  ⎿  Added 2 lines
+      102              return Prompt.from_api_response(entry.data)
+      103          if resp.status_code == 401:
+      104              raise AuthenticationError()
+      105 +        if resp.status_code == 403:                           
+      106 +            raise ForbiddenError()                            
+      107          if resp.status_code == 404:
+      108              raise NotFoundError(f"Prompt not found: {path}")
+      109          if resp.status_code >= 400:
+
+⏺ Now update the async client:
+
+⏺ Update(sdk/src/promptdis/async_client.py)
+  ⎿  Added 1 line, removed 1 line
+      10  
+      11  from promptdis.cache import PromptCache
+      12  from promptdis.models import Prompt
+      13 -from promptdis.exceptions import PromptdisError, NotFoundError,
+         - AuthenticationError                                           
+      13 +from promptdis.exceptions import PromptdisError, NotFoundError,
+         + AuthenticationError, ForbiddenError                           
+      14  
+      15  logger = logging.getLogger(__name__)
+      16  
+
+⏺ Update(sdk/src/promptdis/async_client.py)
+  ⎿  Added 2 lines
+      80              return Prompt.from_api_response(entry.data)
+      81          if resp.status_code == 401:
+      82              raise AuthenticationError()
+      83 +        if resp.status_code == 403:                            
+      84 +            raise ForbiddenError()                             
+      85          if resp.status_code == 404:
+      86              raise NotFoundError(f"Prompt not found: {path}")
+      87          if resp.status_code >= 400:
+
+⏺ Now check if ForbiddenError needs to be exported from the SDK's __init__.py:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(sdk/src/promptdis/__init__.py)
+  ⎿  Added 2 lines, removed 1 line
+      3  from promptdis.client import PromptClient
+      4  from promptdis.async_client import AsyncPromptClient
+      5  from promptdis.models import Prompt
+      6 -from promptdis.exceptions import PromptdisError, NotFoundError, 
+        -AuthenticationError                                             
+      6 +from promptdis.exceptions import PromptdisError, NotFoundError, 
+        +AuthenticationError, ForbiddenError                             
+      7  
+      8  __all__ = [
+      9      "PromptClient",
+     ...
+      12      "PromptdisError",
+      13      "NotFoundError",
+      14      "AuthenticationError",
+      15 +    "ForbiddenError",                                          
+      16  ]
+
+⏺ Now the TypeScript SDK — add ForbiddenError:
+
+⏺ Update(sdk-ts/src/errors.ts)
+  ⎿  Added 8 lines
+      22    }
+      23  }
+      24  
+      25 +/** Thrown when the API key lacks access to the requested resou
+         +rce (403). */                                                  
+      26 +export class ForbiddenError extends PromptdisError {           
+      27 +  constructor(message = "Forbidden") {                         
+      28 +    super(message);                                            
+      29 +    this.name = "ForbiddenError";                              
+      30 +  }                                                            
+      31 +}                                                              
+      32 +                                                               
+      33  /** Thrown when rate limit is exceeded (429). */
+      34  export class RateLimitError extends PromptdisError {
+      35    public retryAfter: number | null;
+
+⏺ Update the TS client to import and use ForbiddenError:
+
+⏺ Update(sdk-ts/src/client.ts)
+  ⎿  Added 1 line
+      3    PromptdisError,
+      4    NotFoundError,
+      5    AuthenticationError,
+      6 +  ForbiddenError,                                               
+      7    RateLimitError,
+      8  } from "./errors.js";
+      9  import type { Prompt } from "./models.js";
+
+⏺ Update(sdk-ts/src/client.ts)
+  ⎿  Added 2 lines
+      193      switch (resp.status) {
+      194        case 401:
+      195          throw new AuthenticationError(message);
+      196 +      case 403:                                               
+      197 +        throw new ForbiddenError(message);                    
+      198        case 404:
+      199          throw new NotFoundError(message);
+      200        case 429:
+
+⏺ Update the TS SDK's index.ts to export ForbiddenError:
+
+⏺ Update(sdk-ts/src/index.ts)
+  ⎿  Added 1 line
+       7    PromptdisError,
+       8    NotFoundError,
+       9    AuthenticationError,
+      10 +  ForbiddenError,                                              
+      11    RateLimitError,
+      12  } from "./errors.js";
+
+⏺ Now add the test fixtures and scope enforcement tests. First, update
+  conftest.py:
+
+⏺ Update(tests/conftest.py)
+  ⎿  Added 8 lines
+      25  # Stable IDs for seed data
+      26  ORG_ID = "org-test-001"
+      27  APP_ID = "app-test-001"
+      28 +APP_ID_2 = "app-test-002"                                      
+      29  PROMPT_ID = "prompt-test-001"
+      30 +PROMPT_ID_2 = "prompt-test-002"                                
+      31  USER_ID = "user-test-001"
+      32  API_KEY_RAW = "pm_live_testkeyvalue1234567890abcdef"
+      33  API_KEY_PREFIX = API_KEY_RAW[:12]
+      34  API_KEY_HASH = bcrypt.hashpw(API_KEY_RAW.encode(), bcrypt.gensa
+          lt()).decode()
+      35  API_KEY_ID = "key-test-001"
+      36  
+      37 +# Scoped API key — only has access to APP_ID (app-test-001)    
+      38 +SCOPED_API_KEY_RAW = "pm_live_scopedkeyvalue9876543210xyz"     
+      39 +SCOPED_API_KEY_PREFIX = SCOPED_API_KEY_RAW[:12]                
+      40 +SCOPED_API_KEY_HASH = bcrypt.hashpw(SCOPED_API_KEY_RAW.encode()
+         +, bcrypt.gensalt()).decode()                                   
+      41 +SCOPED_API_KEY_ID = "key-test-002"                             
+      42 +                                                               
+      43  FRONT_MATTER = json.dumps({
+      44      "version": "1.0",
+      45      "org": "testorg",
+
+⏺ Now add the second app/prompt front matter and seed data:
+
+⏺ Update(tests/conftest.py)
+  ⎿  Added 9 lines
+      49      "_body": "Hello {{ name }}, welcome to {{ place }}.",
+      50  })
+      51  
+      52 +FRONT_MATTER_2 = json.dumps({                                  
+      53 +    "version": "1.0",                                          
+      54 +    "org": "testorg",                                          
+      55 +    "app": "otherapp",                                         
+      56 +    "role": "system",                                          
+      57 +    "model": {"default": "gemini-2.0-flash"},                  
+      58 +    "_body": "Goodbye {{ name }}.",                            
+      59 +})                                                             
+      60  
+      61 +                                                               
+      62  @pytest_asyncio.fixture
+      63  async def db():
+      64      """In-memory SQLite database with schema + seed data."""
+
+⏺ Now add the second app, second prompt, and scoped key to the db fixture's seed
+   data:
+
+⏺ Update(tests/conftest.py)
+  ⎿  Added 19 lines
+       91          "INSERT INTO api_keys (id, user_id, key_hash, key_pref
+           ix, name, scopes) VALUES (?, ?, ?, ?, ?, ?)",
+       92          (API_KEY_ID, USER_ID, API_KEY_HASH, API_KEY_PREFIX, "t
+           est-key", None),
+       93      )
+       94 +                                                              
+       95 +    # Second application + prompt for cross-app scope testing 
+       96 +    await conn.execute(                                       
+       97 +        "INSERT INTO applications (id, org_id, github_repo, di
+          +splay_name) VALUES (?, ?, ?, ?)",                             
+       98 +        (APP_ID_2, ORG_ID, "testorg/otherapp", "Other App"),  
+       99 +    )                                                         
+      100 +    await conn.execute(                                       
+      101 +        "INSERT INTO prompts (id, app_id, name, file_path, dom
+          +ain, description, type, front_matter, body_hash, body, version
+          +, git_sha, active) "                                          
+      102 +        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",     
+      103 +        (PROMPT_ID_2, APP_ID_2, "farewell", "prompts/farewell.
+          +md", "test", "A farewell prompt", "chat",                     
+      104 +         FRONT_MATTER_2, "def456", "Goodbye {{ name }}.", "1.0
+          +", "cafebabe", 1),                                            
+      105 +    )                                                         
+      106 +                                                              
+      107 +    # Scoped API key — only has access to APP_ID (app-test-001
+          +)                                                             
+      108 +    scoped_scopes = json.dumps({"app_ids": [APP_ID], "permissi
+          +ons": ["read"]})                                              
+      109 +    await conn.execute(                                       
+      110 +        "INSERT INTO api_keys (id, user_id, key_hash, key_pref
+          +ix, name, scopes) VALUES (?, ?, ?, ?, ?, ?)",                 
+      111 +        (SCOPED_API_KEY_ID, USER_ID, SCOPED_API_KEY_HASH, SCOP
+          +ED_API_KEY_PREFIX, "scoped-key", scoped_scopes),              
+      112 +    )                                                         
+      113      await conn.commit()
+      114      yield conn
+      115      await conn.close()
+
+⏺ Add the scoped_api_key fixture:
+
+⏺ Update(tests/conftest.py)
+  ⎿  Added 6 lines
+      166  def test_api_key() -> str:
+      167      """Bearer token value for test API key."""
+      168      return API_KEY_RAW
+      169 +                                                              
+      170 +                                                              
+      171 +@pytest.fixture                                               
+      172 +def scoped_api_key() -> str:                                  
+      173 +    """Bearer token value for scoped API key (access to APP_ID
+          + only)."""                                                    
+      174 +    return SCOPED_API_KEY_RAW                                 
+
+⏺ Now add the scope enforcement tests to test_public_api.py:
+
+⏺ Update(tests/server/test_public_api.py)
+  ⎿  Added 1 line, removed 1 line
+       4  
+       5  import pytest
+       6  
+       7 -from tests.conftest import PROMPT_ID                           
+       7 +from tests.conftest import PROMPT_ID, PROMPT_ID_2              
+       8  
+       9  
+      10  @pytest.mark.asyncio
+
+⏺ Update(tests/server/test_public_api.py)
+  ⎿  Added 75 lines
+       46      data = resp.json()
+       47      assert "Alice" in data["rendered_body"]
+       48      assert "Wonderland" in data["rendered_body"]
+       49 +                                                              
+       50 +                                                              
+       51 +# ------------------------------------------------------------
+          +---------------                                               
+       52 +# Scope enforcement tests                                     
+       53 +# ------------------------------------------------------------
+          +---------------                                               
+       54 +                                                              
+       55 +                                                              
+       56 +@pytest.mark.asyncio                                          
+       57 +async def test_scoped_key_can_access_allowed_app(client, scope
+          +d_api_key):                                                   
+       58 +    """Scoped key can fetch a prompt in the allowed app."""   
+       59 +    resp = await client.get(                                  
+       60 +        f"/api/v1/prompts/{PROMPT_ID}",                       
+       61 +        headers={"Authorization": f"Bearer {scoped_api_key}"},
+       62 +    )                                                         
+       63 +    assert resp.status_code == 200                            
+       64 +    assert resp.json()["id"] == PROMPT_ID                     
+       65 +                                                              
+       66 +                                                              
+       67 +@pytest.mark.asyncio                                          
+       68 +async def test_scoped_key_blocked_from_other_app(client, scope
+          +d_api_key):                                                   
+       69 +    """Scoped key cannot fetch a prompt in a different app."""
+       70 +    resp = await client.get(                                  
+       71 +        f"/api/v1/prompts/{PROMPT_ID_2}",                     
+       72 +        headers={"Authorization": f"Bearer {scoped_api_key}"},
+       73 +    )                                                         
+       74 +    assert resp.status_code == 403                            
+       75 +    assert resp.json()["error"]["code"] == "FORBIDDEN"        
+       76 +                                                              
+       77 +                                                              
+       78 +@pytest.mark.asyncio                                          
+       79 +async def test_unscoped_key_accesses_all(client, test_api_key)
+          +:                                                             
+       80 +    """Unscoped key (scopes=NULL) can access prompts in any ap
+          +p."""                                                         
+       81 +    resp1 = await client.get(                                 
+       82 +        f"/api/v1/prompts/{PROMPT_ID}",                       
+       83 +        headers={"Authorization": f"Bearer {test_api_key}"},  
+       84 +    )                                                         
+       85 +    assert resp1.status_code == 200                           
+       86 +                                                              
+       87 +    resp2 = await client.get(                                 
+       88 +        f"/api/v1/prompts/{PROMPT_ID_2}",                     
+       89 +        headers={"Authorization": f"Bearer {test_api_key}"},  
+       90 +    )                                                         
+       91 +    assert resp2.status_code == 200                           
+       92 +                                                              
+       93 +                                                              
+       94 +@pytest.mark.asyncio                                          
+       95 +async def test_scoped_key_render_blocked(client, scoped_api_ke
+          +y):                                                           
+       96 +    """Scoped key cannot render a prompt in a disallowed app."
+          +""                                                            
+       97 +    resp = await client.post(                                 
+       98 +        f"/api/v1/prompts/{PROMPT_ID_2}/render",              
+       99 +        headers={"Authorization": f"Bearer {scoped_api_key}"},
+      100 +        json={"variables": {"name": "Bob"}},                  
+      101 +    )                                                         
+      102 +    assert resp.status_code == 403                            
+      103 +                                                              
+      104 +                                                              
+      105 +@pytest.mark.asyncio                                          
+      106 +async def test_scoped_key_by_name_blocked(client, scoped_api_k
+          +ey):                                                          
+      107 +    """Scoped key cannot fetch by name in a disallowed app."""
+      108 +    resp = await client.get(                                  
+      109 +        "/api/v1/prompts/by-name/testorg/otherapp/farewell",  
+      110 +        headers={"Authorization": f"Bearer {scoped_api_key}"},
+      111 +    )                                                         
+      112 +    assert resp.status_code == 403                            
+      113 +                                                              
+      114 +                                                              
+      115 +@pytest.mark.asyncio                                          
+      116 +async def test_scoped_key_by_name_allowed(client, scoped_api_k
+          +ey):                                                          
+      117 +    """Scoped key can fetch by name in the allowed app."""    
+      118 +    resp = await client.get(                                  
+      119 +        "/api/v1/prompts/by-name/testorg/testapp/greeting",   
+      120 +        headers={"Authorization": f"Bearer {scoped_api_key}"},
+      121 +    )                                                         
+      122 +    assert resp.status_code == 200                            
+      123 +    assert resp.json()["name"] == "greeting"                  
+
+⏺ Now let me run the tests to verify everything works:
+
+⏺ Bash(python -m pytest tests/server/test_public_api.py -v 2>&1)
+  ⎿  Error: Exit code 1
+     /Users/lorenwinzeler/.pyenv/versions/3.12.7/lib/python3.12/site-packages/py
+     test_asyncio/plugin.py:207: PytestDeprecationWarning: The configuration 
+     option "asyncio_default_fixture_loop_scope" is unset.
+     The event loop scope for asynchronous fixtures will default to the fixture 
+     caching scope. Future versions of pytest-asyncio will default the loop 
+     scope for asynchronous fixtures to function scope. Set the default fixture 
+     loop scope explicitly in order to avoid unexpected behavior in the future. 
+     Valid fixture loop scopes are: "function", "class", "module", "package", 
+     "session"
+
+       
+     warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.12.7, pytest-8.3.5, pluggy-1.6.0 -- 
+     /Users/lorenwinzeler/.pyenv/versions/3.12.7/bin/python
+     cachedir: .pytest_cache
+     benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False 
+     min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 
+     warmup=False warmup_iterations=100000)
+     rootdir: /Users/lorenwinzeler/src/futureself/prompt-mgmt
+     … +84 lines (ctrl+o to see all)
+
+⏺ The 403 status is correct but the response body format doesn't match. FastAPI
+  wraps HTTPException.detail in a detail key. Let me check:
+
+⏺ Update(tests/server/test_public_api.py)
+  ⎿  Added 1 line, removed 1 line
+      72          headers={"Authorization": f"Bearer {scoped_api_key}"},
+      73      )
+      74      assert resp.status_code == 403
+      75 -    assert resp.json()["error"]["code"] == "FORBIDDEN"         
+      75 +    assert resp.json()["detail"]["error"]["code"] == "FORBIDDEN
+         +"                                                              
+      76  
+      77  
+      78  @pytest.mark.asyncio
+
+⏺ Bash(python -m pytest
+      tests/server/test_public_api.py::test_scoped_key_blocked_from_other_app -v
+       2>&1)
+  ⎿  /Users/lorenwinzeler/.pyenv/versions/3.12.7/lib/python3.12/site-packag
+     es/pytest_asyncio/plugin.py:207: PytestDeprecationWarning: The configu
+     ration option "asyncio_default_fixture_loop_scope" is unset.
+     … +19 lines (ctrl+o to expand)
+
+⏺ Now run the full test suite to make sure nothing is broken:
+
+⏺ Bash(python -m pytest tests/ -v 2>&1)
+  ⎿  Error: Exit code 1
+     /Users/lorenwinzeler/.pyenv/versions/3.12.7/lib/python3.12/site-packages/py
+     test_asyncio/plugin.py:207: PytestDeprecationWarning: The configuration 
+     option "asyncio_default_fixture_loop_scope" is unset.
+     The event loop scope for asynchronous fixtures will default to the fixture 
+     caching scope. Future versions of pytest-asyncio will default the loop 
+     scope for asynchronous fixtures to function scope. Set the default fixture 
+     loop scope explicitly in order to avoid unexpected behavior in the future. 
+     Valid fixture loop scopes are: "function", "class", "module", "package", 
+     "session"
+
+       
+     warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.12.7, pytest-8.3.5, pluggy-1.6.0 -- 
+     /Users/lorenwinzeler/.pyenv/versions/3.12.7/bin/python
+     cachedir: .pytest_cache
+     benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False 
+     min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 
+     warmup=False warmup_iterations=100000)
+     rootdir: /Users/lorenwinzeler/src/futureself/prompt-mgmt
+     … +125 lines (ctrl+o to see all)
+
+⏺ All 10 public API tests pass (including all 6 new scope tests). There's one
+  pre-existing test failure in test_admin_api.py::test_list_apps because the
+  test assumed only one app exists and now we have two. The apps are sorted by
+  display_name, so "Other App" comes before "Test App". Let me fix that test
+  assertion:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ The test assumed the first app in the list would be APP_ID, but now "Other
+  App" sorts before "Test App" alphabetically. Fix to check that APP_ID exists
+  in the list:
+
+⏺ Update(tests/server/test_admin_api.py)
+  ⎿  Added 2 lines, removed 1 line
+      87      assert resp.status_code == 200
+      88      data = resp.json()
+      89      assert len(data["items"]) >= 1
+      90 -    assert data["items"][0]["id"] == APP_ID                    
+      90 +    app_ids = [item["id"] for item in data["items"]]           
+      91 +    assert APP_ID in app_ids                                   
+      92  
+      93  
+      94  @pytest.mark.asyncio
+
+⏺ Bash(python -m pytest tests/ -v --tb=short 2>&1 | tail -20)
+  ⎿    Enable tracemalloc to get traceback where the object was allocated.
+       See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#r
+     esource-warnings for more info.
+     … +18 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+⏺ All 253 tests pass. Let me update the task status and move on to the frontend.
+
+⏺ Now update the ApiKeysPage.tsx to add org/app selection and display the scoped
+   apps:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Write(web/src/pages/ApiKeysPage.tsx)
+  ⎿  Added 99 lines, removed 6 lines
+       1 -import { useState } from "react";                              
+       1 +import { useState, useEffect } from "react";                   
+       2  import { useQuery, useMutation, useQueryClient } from "@tanstac
+          k/react-query";
+       3  import { apiFetch } from "../api/client";
+       4 +import { fetchOrgs, fetchApps, type Org, type App } from "../ap
+         +i/prompts";                                                    
+       5  
+       6 +interface ApiKeyScopes {                                       
+       7 +  app_ids: string[];                                           
+       8 +  permissions: string[];                                       
+       9 +}                                                              
+      10 +                                                               
+      11  interface ApiKey {
+      12    id: string;
+      13    key_prefix: string;
+      14    name: string;
+       9 -  scopes: Record<string, unknown> | null;                      
+      15 +  scopes: ApiKeyScopes | null;                                 
+      16    expires_at: string | null;
+      17    last_used_at: string | null;
+      18    created_at: string;
+      19  }
+      20  
+      21 +function scopeLabel(scopes: ApiKeyScopes | null): string {     
+      22 +  if (!scopes || !scopes.app_ids?.length) return "All apps";   
+      23 +  return `${scopes.app_ids.length} app${scopes.app_ids.length =
+         +== 1 ? "" : "s"}`;                                             
+      24 +}                                                              
+      25 +                                                               
+      26  export default function ApiKeysPage() {
+      27    const qc = useQueryClient();
+      28    const { data, isLoading } = useQuery({
+     ...
+      33    const [newKeyName, setNewKeyName] = useState("");
+      34    const [createdKey, setCreatedKey] = useState<string | null>(n
+          ull);
+      35  
+      36 +  // Org / App selection state                                 
+      37 +  const [selectedOrgId, setSelectedOrgId] = useState<string>(""
+         +);                                                             
+      38 +  const [selectedAppIds, setSelectedAppIds] = useState<string[]
+         +>([]);                                                         
+      39 +  const [orgs, setOrgs] = useState<Org[]>([]);                 
+      40 +  const [apps, setApps] = useState<App[]>([]);                 
+      41 +                                                               
+      42 +  useEffect(() => {                                            
+      43 +    fetchOrgs().then(setOrgs).catch(() => {});                 
+      44 +  }, []);                                                      
+      45 +                                                               
+      46 +  useEffect(() => {                                            
+      47 +    if (selectedOrgId) {                                       
+      48 +      fetchApps(selectedOrgId).then(setApps).catch(() => setApp
+         +s([]));                                                        
+      49 +    } else {                                                   
+      50 +      setApps([]);                                             
+      51 +    }                                                          
+      52 +    setSelectedAppIds([]);                                     
+      53 +  }, [selectedOrgId]);                                         
+      54 +                                                               
+      55 +  const toggleApp = (appId: string) => {                       
+      56 +    setSelectedAppIds((prev) =>                                
+      57 +      prev.includes(appId) ? prev.filter((id) => id !== appId) 
+         +: [...prev, appId]                                             
+      58 +    );                                                         
+      59 +  };                                                           
+      60 +                                                               
+      61    const createMutation = useMutation({
+      26 -    mutationFn: (name: string) =>                              
+      62 +    mutationFn: (payload: { name: string; scopes: ApiKeyScopes 
+         +}) =>                                                          
+      63        apiFetch<{ key: string }>("/api/v1/admin/api-keys", {
+      64          method: "POST",
+      29 -        body: JSON.stringify({ name }),                        
+      65 +        body: JSON.stringify(payload),                         
+      66        }),
+      67      onSuccess: (data) => {
+      68        setCreatedKey(data.key);
+      69        setNewKeyName("");
+      70 +      setSelectedOrgId("");                                    
+      71 +      setSelectedAppIds([]);                                   
+      72        qc.invalidateQueries({ queryKey: ["api-keys"] });
+      73      },
+      74    });
+     ...
+      79      onSuccess: () => qc.invalidateQueries({ queryKey: ["api-key
+          s"] }),
+      80    });
+      81  
+      82 +  const canCreate = newKeyName && selectedAppIds.length > 0;   
+      83 +                                                               
+      84    return (
+      85      <div className="space-y-6">
+      86        <h1 className="text-2xl font-bold text-gray-900">API Keys
+          </h1>
+     ...
+       96              placeholder="Key name (e.g., Production SDK)"
+       97              className="flex-1 rounded border border-gray-300 p
+           x-3 py-2 text-sm"
+       98            />
+       99 +        </div>                                                
+      100 +                                                              
+      101 +        {/* Org selector */}                                  
+      102 +        <div className="mt-3">                                
+      103 +          <label className="block text-xs font-medium text-gra
+          +y-600">Organization</label>                                   
+      104 +          <select                                             
+      105 +            value={selectedOrgId}                             
+      106 +            onChange={(e) => setSelectedOrgId(e.target.value)}
+      107 +            className="mt-1 w-full rounded border border-gray-
+          +300 px-3 py-2 text-sm"                                        
+      108 +          >                                                   
+      109 +            <option value="">Select an organization...</option
+          +>                                                             
+      110 +            {orgs.map((org) => (                              
+      111 +              <option key={org.id} value={org.id}>            
+      112 +                {org.display_name || org.github_owner}        
+      113 +              </option>                                       
+      114 +            ))}                                               
+      115 +          </select>                                           
+      116 +        </div>                                                
+      117 +                                                              
+      118 +        {/* App checkbox list */}                             
+      119 +        {apps.length > 0 && (                                 
+      120 +          <div className="mt-3">                              
+      121 +            <label className="block text-xs font-medium text-g
+          +ray-600">                                                     
+      122 +              Applications (select which apps this key can acc
+          +ess)                                                          
+      123 +            </label>                                          
+      124 +            <div className="mt-1 max-h-40 space-y-1 overflow-y
+          +-auto rounded border border-gray-200 p-2">                    
+      125 +              {apps.map((app) => (                            
+      126 +                <label key={app.id} className="flex items-cent
+          +er gap-2 text-sm">                                            
+      127 +                  <input                                      
+      128 +                    type="checkbox"                           
+      129 +                    checked={selectedAppIds.includes(app.id)} 
+      130 +                    onChange={() => toggleApp(app.id)}        
+      131 +                    className="rounded border-gray-300"       
+      132 +                  />                                          
+      133 +                  {app.display_name || app.github_repo}       
+      134 +                </label>                                      
+      135 +              ))}                                             
+      136 +            </div>                                            
+      137 +          </div>                                              
+      138 +        )}                                                    
+      139 +                                                              
+      140 +        <div className="mt-3">                                
+      141            <button
+       60 -            onClick={() => newKeyName && createMutation.mutate
+          -(newKeyName)}                                                 
+       61 -            disabled={!newKeyName || createMutation.isPending}
+      142 +            onClick={() =>                                    
+      143 +              canCreate &&                                    
+      144 +              createMutation.mutate({                         
+      145 +                name: newKeyName,                             
+      146 +                scopes: { app_ids: selectedAppIds, permissions
+          +: ["read"] },                                                 
+      147 +              })                                              
+      148 +            }                                                 
+      149 +            disabled={!canCreate || createMutation.isPending} 
+      150              className="rounded bg-gray-900 px-4 py-2 text-sm f
+           ont-medium text-white hover:bg-gray-800 disabled:opacity-50"
+      151            >
+      152              Generate
+      153            </button>
+      154 +          {!selectedAppIds.length && selectedOrgId && (       
+      155 +            <p className="mt-1 text-xs text-amber-600">Select 
+          +at least one application.</p>                                 
+      156 +          )}                                                  
+      157          </div>
+      158  
+      159          {createdKey && (
+     ...
+      189                <tr className="border-b border-gray-200 text-lef
+           t text-xs text-gray-500">
+      190                  <th className="py-2">Name</th>
+      191                  <th className="py-2">Prefix</th>
+      192 +                <th className="py-2">Apps</th>                
+      193                  <th className="py-2">Last Used</th>
+      194                  <th className="py-2">Created</th>
+      195                  <th className="py-2" />
+     ...
+      200                  <tr key={key.id} className="border-b border-gr
+           ay-100">
+      201                    <td className="py-2 font-medium">{key.name}<
+           /td>
+      202                    <td className="py-2 font-mono text-gray-500"
+           >{key.key_prefix}...</td>
+      203 +                  <td className="py-2 text-gray-500">{scopeLab
+          +el(key.scopes)}</td>                                          
+      204                    <td className="py-2 text-gray-500">
+      205                      {key.last_used_at ? new Date(key.last_used
+           _at).toLocaleDateString() : "Never"}
+      206                    </td>
+
+⏺ Let me check if the frontend type-checks:
+
+⏺ Bash(cd /Users/lorenwinzeler/src/futureself/prompt-mgmt/web && npx tsc
+      --noEmit 2>&1)
+  ⎿  Error: Exit code 2
+     src/api/client.test.ts(36,12): error TS6133: 'url' is declared but its 
+     value is never read.
+     src/api/client.ts(1,30): error TS2339: Property 'env' does not exist on 
+     type 'ImportMeta'.
+     src/api/prompts.ts(175,32): error TS2339: Property 'env' does not exist on 
+     type 'ImportMeta'.
+     src/api/prompts.ts(283,32): error TS2339: Property 'env' does not exist on 
+     type 'ImportMeta'.
+     src/components/editor/MarkdownEditor.tsx(44,66): error TS2345: Argument of 
+     type '{ startState(): { inBlock: string | null; }; token(stream: { match: 
+     (re: RegExp) => string[] | null; next: () => string; eol: () => boolean; },
+      state: { inBlock: string | null; }): "atom" | ... 2 more ... | null; }' is
+      not assignable to parameter of type 'StreamParser<{ inBlock: string | 
+     null; }>'.
+       Types of property 'token' are incompatible.
+         Type '(stream: { match: (re: RegExp) => string[] | null; next: () => 
+     string; eol: () => boolean; }, state: { inBlock: string | null; }) => 
+     "atom" | "keyword" | "comment" | null' is not assignable to type '(stream: 
+     StringStream, state: { inBlock: string | null; }) => string | null'.
+           Types of parameters 'stream' and 'stream' are incompatible.
+             Type 'StringStream' is not assignable to type '{ match: (re: 
+     RegExp) => string[] | null; next: () => string; eol: () => boolean; }'.
+     … +42 lines (ctrl+o to see all)
+
+⏺ All TS errors are pre-existing (none in ApiKeysPage.tsx). The frontend code is
+   clean.
+
+⏺ Now update the documentation. Let me read the external docs and then update
+  all 4 doc files. I'll launch agents for the external docs while updating the
+  local ones:
+
+⏺ Explore(Read external doc files) Haiku 4.5
+  ⎿  Done (14 tool uses · 26.7k tokens · 26s)
+  (ctrl+o to expand)
+
+⏺ Now let me update the documentation files. Let me start with the two external
+  docs:
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md)
+  ⎿  File must be read first
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md)
+  ⎿  Added 4 lines, removed 2 lines
+      212  5. Client sends key as `Authorization: Bearer pm_live_...` hea
+           der
+      213  6. Backend bcrypt-verifies against stored hash
+      214  
+      215 -**Key scoping:**                                              
+      215 +**Key scoping (enforced):**                                   
+      216  - Each key has a JSON `scopes` field: `{ "org_ids": [...], "ap
+           p_ids": [...], "permissions": ["read"] }`
+      217 +- New keys must include at least one `app_id` — unscoped keys 
+          +can no longer be created                                      
+      218 +- Existing keys with `scopes=NULL` are grandfathered and retai
+          +n access to all applications                                  
+      219 +- Scope enforcement is active on all public API endpoints: req
+          +uests to prompts outside the key's `app_ids` return `403 Forbi
+          +dden`                                                         
+      220  - Keys can be read-only (`read`) or read-write (`read`, `write
+           `)
+      218 -- Keys can be scoped to specific organizations and/or applicat
+          -ions                                                          
+      221  - Keys have optional `expires_at` for rotation
+      222  
+      223  **Rate limiting:**
+
+⏺ Now update the API docs. Let me find the public API status code tables and the
+   POST /admin/api-keys section:
+
+⏺ Searched for 2 patterns (ctrl+o to expand)
+
+⏺ The file is PROMPTORY_API_DOCS.md. Let me find the relevant sections:
+
+⏺ Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+⏺ Now I need to check if there's a separate status code table for the by-name
+  endpoint too:
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ I need to find the by-name endpoint status codes too. Let me read around line
+  670:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ I see — there doesn't seem to be a separate status table for the by-name
+  endpoint. Let me check:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ The by-name endpoint says "same as GET /prompts/{prompt_id}" so updating that
+  table covers it. Now let me update all three status code tables:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md)
+  ⎿  Added 1 line
+      636  | `200` | Prompt returned successfully |
+      637  | `304` | Not Modified (ETag matches, use cached version) |
+      638  | `401` | Missing or invalid API key |
+      639 +| `403` | API key does not have access to this application (sc
+          +ope enforcement) |                                            
+      640  | `404` | Prompt not found |
+      641  
+      642  ---
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md)
+  ⎿  Added 1 line
+      717  | `200` | Rendered successfully |
+      718  | `400` | Render error (missing variable, Jinja2 syntax error)
+            |
+      719  | `401` | Missing or invalid API key |
+      720 +| `403` | API key does not have access to this application (sc
+          +ope enforcement) |                                            
+      721  | `404` | Prompt not found |
+      722  
+      723  ---
+
+⏺ Now update the POST /admin/api-keys section. Let me find it:
+
+⏺ Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md)
+  ⎿  Added 4 lines, removed 3 lines
+      1179  {
+      1180    "name": "FutureSelf Backend",
+      1181    "scopes": {
+      1182 -    "org_ids": ["uuid"],                                     
+      1183 -    "app_ids": [],                                           
+      1182 +    "app_ids": ["uuid-of-app-1", "uuid-of-app-2"],           
+      1183      "permissions": ["read"]
+      1184    },
+      1185    "expires_at": "2027-01-01T00:00:00Z"
+      1186  }
+      1187  ```
+      1188  
+      1189 +> **Required:** `scopes.app_ids` must be a non-empty list of 
+           +valid application UUIDs. Each `app_id` is validated against t
+           +he `applications` table. Keys without `app_ids` can no longer
+           + be created; existing keys with `scopes=NULL` continue to wor
+           +k and have access to all applications.                       
+      1190 +                                                             
+      1191  **Response:**
+      1192  
+      1193  ```json
+     ...
+      1196    "key": "pm_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+      1197    "key_prefix": "pm_live_a1b2",
+      1198    "name": "FutureSelf Backend",
+      1198 -  "scopes": {"org_ids": ["uuid"], "permissions": ["read"]},  
+      1199 +  "scopes": {"app_ids": ["uuid-of-app-1", "uuid-of-app-2"], "
+           +permissions": ["read"]},                                     
+      1200    "expires_at": "2027-01-01T00:00:00Z"
+      1201  }
+      1202  ```
+
+⏺ Now update README.md — update test count and add a note about API key scoping:
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      382  cd sdk-ts && npx vitest run
+      383  ```
+      384  
+      385 -**308 total tests** across Python backend, web frontend, and T
+          -ypeScript SDK.                                                
+      385 +**337 total tests** across Python backend, web frontend, and T
+          +ypeScript SDK.                                                
+      386  
+      387  ## CI/CD
+      388  
+
+⏺ Wait, let me get the actual count. The test output said 253 Python tests. Let
+  me check:
+
+⏺ Bash(python -m pytest tests/ --co -q 2>&1 | tail -3)
+  ⎿  tests/server/test_tts_storage.py::TestGetTTSStorage::test_lambda_mode_
+     no_bucket_falls_back_to_local
+
+     253 tests collected in 0.34s
+
+⏺ 253 Python + 66 frontend + 18 TS SDK = 337. The README previously said 308
+  (224+66+18). The difference is the 29 new Python tests I added (actually we
+  went from 224 to 253 over time, which is the delta from earlier work plus our
+  6 new tests). 337 is correct.
+
+  Now update the backend test count mentioned in the README:
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      372  ## Testing
+      373  
+      374  ```bash
+      375 -# Backend (224 tests)                                         
+      375 +# Backend (253 tests)                                         
+      376  python -m pytest tests/ -v
+      377  
+      378  # Frontend (66 tests)
+
+⏺ Now add a note about API key scoping in the README's auth section:
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      30  - **Server:** FastAPI + aiosqlite + PyGithub
+      31  - **Frontend:** React 18 + Vite + Tailwind CSS + TanStack Query
+           + CodeMirror 6
+      32  - **Database:** SQLite (index/cache only — GitHub is the source
+           of truth)
+      33 -- **Auth:** GitHub OAuth SSO (web) + API keys (SDK)            
+      33 +- **Auth:** GitHub OAuth SSO (web) + application-scoped API key
+         +s (SDK)                                                        
+      34  
+      35  ## Quick Start
+      36  
+
+⏺ Now update RUNBOOK.md — Section 7 API key examples and troubleshooting:
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 4 lines, removed 3 lines
+      617  ### API Key Management
+      618  
+      619  ```bash
+      620 -# Create a new API key (via web UI or API)                    
+      621 -curl -X POST http://localhost:8000/api/v1/api-keys \          
+      620 +# Create a new API key scoped to specific applications (via we
+          +b UI or API)                                                  
+      621 +curl -X POST http://localhost:8000/api/v1/admin/api-keys \    
+      622    -H "Cookie: session=<session-id>" \
+      623    -H "Content-Type: application/json" \
+      624 -  -d '{"name": "production-service"}'                         
+      624 +  -d '{"name": "production-service", "scopes": {"app_ids": ["<
+          +app-uuid>"], "permissions": ["read"]}}'                       
+      625  # Response includes the full key (pm_live_...) — store it secu
+           rely, it's only shown once
+      626 +# Note: app_ids is required and must be a non-empty list of va
+          +lid application UUIDs                                         
+      627  
+      628  # List keys
+      629  curl http://localhost:8000/api/v1/api-keys \
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 2 lines, removed 2 lines
+      626  # Note: app_ids is required and must be a non-empty list of va
+           lid application UUIDs
+      627  
+      628  # List keys
+      629 -curl http://localhost:8000/api/v1/api-keys \                  
+      629 +curl http://localhost:8000/api/v1/admin/api-keys \            
+      630    -H "Cookie: session=<session-id>"
+      631  
+      632  # Revoke a key
+      633 -curl -X DELETE http://localhost:8000/api/v1/api-keys/<key-id> 
+          -\                                                             
+      633 +curl -X DELETE http://localhost:8000/api/v1/admin/api-keys/<ke
+          +y-id> \                                                       
+      634    -H "Cookie: session=<session-id>"
+      635  ```
+      636  
+
+⏺ Now add the 403 troubleshooting note to the troubleshooting section:
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 7 lines
+      735  INSERT INTO prompts_fts(prompts_fts) VALUES('rebuild');
+      736  ```
+      737  
+      738 +### **403 Forbidden on public API**                           
+      739 +                                                              
+      740 +- The API key is scoped to specific applications and the reque
+          +sted prompt belongs to a different application                
+      741 +- Check the key's `scopes.app_ids` — it must include the `app_
+          +id` of the prompt being fetched                               
+      742 +- Existing keys with `scopes=NULL` (created before scope enfor
+          +cement) have access to all apps                               
+      743 +- To fix: create a new key with the correct application(s) sel
+          +ected, or use an unscoped legacy key                          
+      744 +                                                              
+      745  ### **Rate limiting (429 Too Many Requests)**
+      746  
+      747  - Default limit: 100 requests/minute per API key or IP
+
+⏺ Update the RUNBOOK test count too:
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 1 line, removed 1 line
+      138  ### Running Tests
+      139  
+      140  ```bash
+      141 -# Backend (Python — 224 tests)                                
+      141 +# Backend (Python — 253 tests)                                
+      142  python -m pytest tests/ -v
+      143  
+      144  # Frontend (Vitest — 66 tests)
+
+⏺ Let me do a final test run to confirm everything is green:
+
+⏺ Bash(python -m pytest tests/ -v --tb=short 2>&1 | tail -10)
+  ⎿    See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#r
+     esource-warnings for more info.
+     … +14 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+⏺ All 253 tests pass. Here's a summary of everything that was implemented:
+
+  Summary of Changes
+
+  Backend (4 files)
+
+  1. server/api/public.py — Added _enforce_app_scope() helper that calls
+  check_scope(). Wired into all 3 public endpoints (GET /prompts/{id}, GET 
+  /prompts/by-name/..., POST /prompts/{id}/render). Added app_id to cached
+  result dicts so scope checks work on cache hits.
+  2. server/api/api_keys.py — New key creation now requires scopes.app_ids
+  (non-empty list). Each app_id is validated against the database. Existing keys
+   with scopes=NULL are grandfathered.
+  3. server/db/queries/api_keys.py — Added get_apps_for_key() query that joins
+  scopes JSON against the applications table.
+
+  SDKs (6 files)
+
+  4. Python SDK — Added ForbiddenError(PromptdisError) to exceptions.py. Added
+  403 handling in both client.py and async_client.py. Exported from __init__.py.
+  5. TypeScript SDK — Added ForbiddenError to errors.ts. Added 403 case in
+  client.ts _handleError(). Exported from index.ts.
+
+  Frontend (1 file)
+
+  6. web/src/pages/ApiKeysPage.tsx — Added org dropdown, app checkbox list for
+  scoping keys. Sends scopes: { app_ids: [...], permissions: ["read"] } in the
+  create mutation. Added "Apps" column to the key list table showing scoped app
+  count or "All apps".
+
+  Tests (2 files)
+
+  7. tests/conftest.py — Added APP_ID_2, PROMPT_ID_2, scoped API key fixtures,
+  and seed data for a second app/prompt.
+  8. tests/server/test_public_api.py — 6 new scope enforcement tests covering:
+  allowed access, blocked access, unscoped key access, render blocking, by-name
+  blocking, and by-name allowed.
+
+  Documentation (4 files)
+
+  9. README.md — Updated test count (253 backend, 337 total), noted
+  application-scoped API keys.
+  10. RUNBOOK.md — Updated API key creation examples with scopes, added 403
+  troubleshooting section, updated test count.
+  11. PROMPT_APP.md — Updated Section 3.2 to note scope enforcement is now
+  active.
+  12. PROMPTORY_API_DOCS.md — Added 403 to public API status code tables,
+  updated POST /admin/api-keys request example with required app_ids.
+
+✻ Brewed for 9m 9s

@@ -1,0 +1,213 @@
+
+ ▐▛███▜▌   Claude Code v2.1.63
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Plan: Fix Ruff Linter Errors (14 errors across 5 files)                      │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ The GitHub PR CI/CD pipeline fails on ruff lint checks. There are 14 errors  │
+│ across 5 files: 3 unused variable assignments (F841) and 11 late imports     │
+│ (E402). All are straightforward fixes.                                       │
+│                                                                              │
+│ ---                                                                          │
+│ Fix 1 — server/api/admin.py:618 — F841 unused user                           │
+│                                                                              │
+│ _require_user(request) raises HTTPException(401) if unauthenticated — the    │
+│ call is needed for its side effect but the return value is unused in         │
+│ export_prompty.                                                              │
+│                                                                              │
+│ Change: user = _require_user(request) → _require_user(request)               │
+│                                                                              │
+│ ---                                                                          │
+│ Fix 2 — server/main.py:77-82 — E402 late router imports (6 errors)           │
+│                                                                              │
+│ Router imports are placed after app creation + middleware setup. No circular │
+│  imports exist (routers don't import from server.main).                      │
+│                                                                              │
+│ Change: Move the 6 from server.auth/api... import lines to the top of the    │
+│ file (after line 16, before the logging setup), keeping the                  │
+│ app.include_router() calls where they are (lines 84-89).                     │
+│                                                                              │
+│ ---                                                                          │
+│ Fix 3 — server/services/prompt_service.py:130 — F841 unused commit_sha       │
+│                                                                              │
+│ github.create_file(...) returns a commit SHA that is never used — the        │
+│ function later fetches the prompt from SQLite after sync.                    │
+│                                                                              │
+│ Change: commit_sha = github.create_file(...) → github.create_file(...)       │
+│                                                                              │
+│ ---                                                                          │
+│ Fix 4 — tests/sdk/test_client.py:17-22 — E402 late imports (5 errors)        │
+│                                                                              │
+│ Imports are after sys.path.insert() on line 14 — this is intentional and     │
+│ necessary (SDK path must be added before from promptdis... imports). Best    │
+│ fix is a per-file ruff ignore.                                               │
+│                                                                              │
+│ Change: Add to pyproject.toml under [tool.ruff]:                             │
+│ [tool.ruff.per-file-ignores]                                                 │
+│ "tests/sdk/test_client.py" = ["E402"]                                        │
+│                                                                              │
+│ ---                                                                          │
+│ Fix 5 — tests/server/test_eval_service.py:136 — F841 unused mock_config_path │
+│                                                                              │
+│ mock_config_path is assigned from the same expression as mock_output_path    │
+│ (line 137) and never used or configured. Dead code.                          │
+│                                                                              │
+│ Change: Delete line 136 (mock_config_path = ...).                            │
+│                                                                              │
+│ ---                                                                          │
+│ Files to Modify                                                              │
+│                                                                              │
+│ ┌───────────────────────────────────┬──────────┬───────────────────────────┐ │
+│ │               File                │ Error(s) │            Fix            │ │
+│ ├───────────────────────────────────┼──────────┼───────────────────────────┤ │
+│ │ server/api/admin.py               │ F841 ×1  │ Drop user = assignment    │ │
+│ ├───────────────────────────────────┼──────────┼───────────────────────────┤ │
+│ │ server/main.py                    │ E402 ×6  │ Move 6 router imports to  │ │
+│ │                                   │          │ top                       │ │
+│ ├───────────────────────────────────┼──────────┼───────────────────────────┤ │
+│ │ server/services/prompt_service.py │ F841 ×1  │ Drop commit_sha =         │ │
+│ │                                   │          │ assignment                │ │
+│ ├───────────────────────────────────┼──────────┼───────────────────────────┤ │
+│ │ pyproject.toml                    │ —        │ Add per-file-ignores for  │ │
+│ │                                   │          │ test_client.py            │ │
+│ ├───────────────────────────────────┼──────────┼───────────────────────────┤ │
+│ │ tests/server/test_eval_service.py │ F841 ×1  │ Delete unused line        │ │
+│ └───────────────────────────────────┴──────────┴───────────────────────────┘ │
+│                                                                              │
+│ ---                                                                          │
+│ Verification                                                                 │
+│                                                                              │
+│ ruff check server/ sdk/ tests/                                               │
+│ # Expected: 0 errors                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ I'll read all 5 files in parallel to see the exact code before making changes.
+
+⏺ Read 5 files (ctrl+o to expand)
+
+⏺ Now I'll apply all 5 fixes in parallel.
+
+⏺ Update(server/api/admin.py)
+  ⎿  Error editing file
+
+⏺ Update(server/main.py)
+  ⎿  Added 6 lines
+      14  from server.auth.sessions import cleanup_expired_sessions
+      15  from server.auth.middleware import AuthMiddleware
+      16  from server.auth.rate_limiter import RateLimitMiddleware
+      17 +from server.auth.github_oauth import router as auth_router     
+      18 +from server.api.public import router as public_router          
+      19 +from server.api.admin import router as admin_router            
+      20 +from server.api.webhooks import router as webhooks_router      
+      21 +from server.api.api_keys import router as api_keys_router      
+      22 +from server.api.eval import router as eval_router              
+      23  
+      24  logging.basicConfig(level=getattr(logging, settings.log_level.u
+          pper(), logging.INFO))
+      25  logger = logging.getLogger(__name__)
+
+⏺ Update(server/services/prompt_service.py)
+  ⎿  Added 1 line, removed 1 line
+      127          file_path = f"{subdir}/{data['name']}.md".lstrip("/")
+      128  
+      129      # Commit to GitHub
+      130 -    commit_sha = github.create_file(                          
+      130 +    github.create_file(                                       
+      131          app["github_repo"],
+      132          file_path,
+      133          file_content,
+
+⏺ Update(pyproject.toml)
+  ⎿  Added 3 lines
+      43  target-version = "py311"
+      44  line-length = 100
+      45  
+      46 +[tool.ruff.lint.per-file-ignores]                              
+      47 +"tests/sdk/test_client.py" = ["E402"]                          
+      48 +                                                               
+      49  [tool.pytest.ini_options]
+      50  asyncio_mode = "auto"
+      51  testpaths = ["tests"]
+
+⏺ Update(tests/server/test_eval_service.py)
+  ⎿  Removed 1 line
+      133               patch("server.services.eval_service.asyncio.wait_
+           for", return_value=(b"OK", b"")), \
+      134               patch("server.services.eval_service.Path") as moc
+           k_path_cls:
+      135              # Mock the temp directory paths
+      136 -            mock_config_path = mock_path_cls.return_value.__tr
+          -uediv__.return_value                                          
+      136              mock_output_path = mock_path_cls.return_value.__tr
+           uediv__.return_value
+      137              mock_output_path.exists.return_value = True
+      138              mock_output_path.read_text.return_value = '{"resul
+           ts": [{"score": 1.0}]}'
+
+⏺ 4 of 5 fixes applied. I need more context for the admin.py fix, and I need to
+  remove the old late imports from main.py.
+
+⏺ Update(server/api/admin.py)
+  ⎿  Added 1 line, removed 1 line
+      615  @router.get("/prompts/{prompt_id}/export/prompty")
+      616  async def export_prompty(prompt_id: str, request: Request):
+      617      """Export a prompt in .prompty format."""
+      618 -    user = _require_user(request)                             
+      618 +    _require_user(request)                                    
+      619      db = await get_db()
+      620  
+      621      prompt = await prompt_queries.get_prompt(db, prompt_id)
+
+⏺ Update(server/main.py)
+  ⎿  Added 1 line, removed 8 lines
+      79      allow_headers=["*"],
+      80  )
+      81  
+      82 -# Import and register routers                                  
+      83 -from server.auth.github_oauth import router as auth_router     
+      84 -from server.api.public import router as public_router          
+      85 -from server.api.admin import router as admin_router            
+      86 -from server.api.webhooks import router as webhooks_router      
+      87 -from server.api.api_keys import router as api_keys_router      
+      88 -from server.api.eval import router as eval_router              
+      89 -                                                               
+      82 +# Register routers                                             
+      83  app.include_router(auth_router)
+      84  app.include_router(public_router)
+      85  app.include_router(admin_router)
+
+⏺ All 5 fixes applied. Let me verify with ruff.
+
+⏺ Bash(ruff check server/ sdk/ tests/)
+  ⎿  All checks passed!
+
+⏺ All 14 linter errors are resolved. Here's a summary of what was changed:
+
+  ┌──────────────────────────────────────┬──────────────────────────────────┐
+  │                 File                 │               Fix                │
+  ├──────────────────────────────────────┼──────────────────────────────────┤
+  │ server/api/admin.py:618              │ Removed unused user = assignment │
+  │                                      │  in export_prompty               │
+  ├──────────────────────────────────────┼──────────────────────────────────┤
+  │                                      │ Moved 6 router imports from      │
+  │ server/main.py                       │ after app creation to top-level  │
+  │                                      │ imports                          │
+  ├──────────────────────────────────────┼──────────────────────────────────┤
+  │ server/services/prompt_service.py:13 │ Removed unused commit_sha =      │
+  │ 0                                    │ assignment                       │
+  ├──────────────────────────────────────┼──────────────────────────────────┤
+  │                                      │ Added [tool.ruff.lint.per-file-i │
+  │ pyproject.toml                       │ gnores] for                      │
+  │                                      │ tests/sdk/test_client.py E402    │
+  ├──────────────────────────────────────┼──────────────────────────────────┤
+  │ tests/server/test_eval_service.py:13 │ Deleted unused mock_config_path  │
+  │ 6                                    │ line                             │
+  └──────────────────────────────────────┴──────────────────────────────────┘
+
+✻ Worked for 39s

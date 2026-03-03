@@ -7,7 +7,6 @@ import json
 import uuid
 
 import frontmatter
-import yaml
 
 
 def parse_prompt_file(content: str) -> tuple[dict, str]:

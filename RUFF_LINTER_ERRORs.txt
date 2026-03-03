@@ -1,0 +1,147 @@
+F841 Local variable `user` is assigned to but never used
+   --> server/api/admin.py:618:5
+    |
+616 | async def export_prompty(prompt_id: str, request: Request):
+617 |     """Export a prompt in .prompty format."""
+618 |     user = _require_user(request)
+    |     ^^^^
+619 |     db = await get_db()
+    |
+help: Remove assignment to unused variable `user`
+
+E402 Module level import not at top of file
+  --> server/main.py:77:1
+   |
+76 | # Import and register routers
+77 | from server.auth.github_oauth import router as auth_router
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+78 | from server.api.public import router as public_router
+79 | from server.api.admin import router as admin_router
+   |
+
+E402 Module level import not at top of file
+  --> server/main.py:78:1
+   |
+76 | # Import and register routers
+77 | from server.auth.github_oauth import router as auth_router
+78 | from server.api.public import router as public_router
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+79 | from server.api.admin import router as admin_router
+80 | from server.api.webhooks import router as webhooks_router
+   |
+
+E402 Module level import not at top of file
+  --> server/main.py:79:1
+   |
+77 | from server.auth.github_oauth import router as auth_router
+78 | from server.api.public import router as public_router
+79 | from server.api.admin import router as admin_router
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+80 | from server.api.webhooks import router as webhooks_router
+81 | from server.api.api_keys import router as api_keys_router
+   |
+
+E402 Module level import not at top of file
+  --> server/main.py:80:1
+   |
+78 | from server.api.public import router as public_router
+79 | from server.api.admin import router as admin_router
+80 | from server.api.webhooks import router as webhooks_router
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+81 | from server.api.api_keys import router as api_keys_router
+82 | from server.api.eval import router as eval_router
+   |
+
+E402 Module level import not at top of file
+  --> server/main.py:81:1
+   |
+79 | from server.api.admin import router as admin_router
+80 | from server.api.webhooks import router as webhooks_router
+81 | from server.api.api_keys import router as api_keys_router
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+82 | from server.api.eval import router as eval_router
+   |
+
+E402 Module level import not at top of file
+  --> server/main.py:82:1
+   |
+80 | from server.api.webhooks import router as webhooks_router
+81 | from server.api.api_keys import router as api_keys_router
+82 | from server.api.eval import router as eval_router
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+83 |
+84 | app.include_router(auth_router)
+   |
+
+F841 Local variable `commit_sha` is assigned to but never used
+   --> server/services/prompt_service.py:130:5
+    |
+129 |     # Commit to GitHub
+130 |     commit_sha = github.create_file(
+    |     ^^^^^^^^^^
+131 |         app["github_repo"],
+132 |         file_path,
+    |
+help: Remove assignment to unused variable `commit_sha`
+
+E402 Module level import not at top of file
+  --> tests/sdk/test_client.py:17:1
+   |
+17 | import httpx
+   | ^^^^^^^^^^^^
+18 | import pytest
+   |
+
+E402 Module level import not at top of file
+  --> tests/sdk/test_client.py:18:1
+   |
+17 | import httpx
+18 | import pytest
+   | ^^^^^^^^^^^^^
+19 |
+20 | from promptdis.client import PromptClient
+   |
+
+E402 Module level import not at top of file
+  --> tests/sdk/test_client.py:20:1
+   |
+18 | import pytest
+19 |
+20 | from promptdis.client import PromptClient
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+21 | from promptdis.async_client import AsyncPromptClient
+22 | from promptdis.exceptions import PromptdisError, NotFoundError, AuthenticationError
+   |
+
+E402 Module level import not at top of file
+  --> tests/sdk/test_client.py:21:1
+   |
+20 | from promptdis.client import PromptClient
+21 | from promptdis.async_client import AsyncPromptClient
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+22 | from promptdis.exceptions import PromptdisError, NotFoundError, AuthenticationError
+   |
+
+E402 Module level import not at top of file
+  --> tests/sdk/test_client.py:22:1
+   |
+20 | from promptdis.client import PromptClient
+21 | from promptdis.async_client import AsyncPromptClient
+22 | from promptdis.exceptions import PromptdisError, NotFoundError, AuthenticationError
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+
+F841 Local variable `mock_config_path` is assigned to but never used
+   --> tests/server/test_eval_service.py:136:13
+    |
+134 |              patch("server.services.eval_service.Path") as mock_path_cls:
+135 |             # Mock the temp directory paths
+136 |             mock_config_path = mock_path_cls.return_value.__truediv__.return_value
+    |             ^^^^^^^^^^^^^^^^
+137 |             mock_output_path = mock_path_cls.return_value.__truediv__.return_value
+138 |             mock_output_path.exists.return_value = True
+    |
+help: Remove assignment to unused variable `mock_config_path`
+
+Found 14 errors.
+No fixes available (3 hidden fixes can be enabled with the `--unsafe-fixes` option).

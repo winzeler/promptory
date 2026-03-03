@@ -1,5 +1,4 @@
 import { Link, useLocation } from "react-router-dom";
-import { useOrgs, useApps } from "../../hooks/usePrompts";
 import OrgAppSelector from "./OrgAppSelector";
 
 const navItems = [
@@ -15,8 +14,14 @@ export default function Sidebar() {
     <aside className="flex w-64 flex-col border-r border-gray-200 bg-white">
       {/* Logo */}
       <div className="flex h-14 items-center border-b border-gray-200 px-4">
-        <Link to="/" className="text-xl font-bold text-gray-900">
-          Promptory
+        <Link to="/" className="flex items-center gap-2 text-xl font-bold text-gray-900">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" className="h-7 w-7">
+            <circle cx="32" cy="32" r="30" fill="#1f2937" />
+            <polyline points="22,20 10,32 22,44" fill="none" stroke="#f9fafb" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points="42,20 54,32 42,44" fill="none" stroke="#f9fafb" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            <polygon points="36,14 26,34 33,34 28,50 38,30 31,30" fill="#3b82f6" />
+          </svg>
+          Promptdis
         </Link>
       </div>
 
@@ -47,7 +52,7 @@ export default function Sidebar() {
 
       {/* Version */}
       <div className="border-t border-gray-200 p-4 text-xs text-gray-400">
-        Promptory v0.1.0
+        Promptdis v0.1.0
       </div>
     </aside>
   );

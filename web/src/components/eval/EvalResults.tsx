@@ -144,7 +144,8 @@ function RunDetails({ run }: { run: EvalRun }) {
       </p>
       {evalResults.map((r, i) => {
         const output = String(r.response ?? r.output ?? "");
-        const assertions = (r.gradingResult?.componentResults ?? []) as Array<Record<string, unknown>>;
+        const gradingResult = r.gradingResult as Record<string, unknown> | undefined;
+        const assertions = (gradingResult?.componentResults ?? []) as Array<Record<string, unknown>>;
         return (
           <div key={i} className="rounded border border-gray-200 bg-white p-2 text-xs">
             <pre className="max-h-32 overflow-auto whitespace-pre-wrap text-gray-700">

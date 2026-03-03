@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 
 from server.db.database import get_db
@@ -13,6 +13,7 @@ from server.db.queries import organizations as org_queries
 from server.db.queries import applications as app_queries
 from server.db.queries import prompts as prompt_queries
 from server.db.queries import analytics as analytics_queries
+from server.db.queries import users as user_queries
 from server.services.github_service import GitHubService
 from server.services.prompt_service import (
     create_prompt,
@@ -62,6 +63,25 @@ async def list_orgs(request: Request):
     return {"items": orgs}
 
 
+@router.post("/orgs")
+async def create_organization(request: Request):
+    user = _require_user(request)
+    db = await get_db()
+    body = await request.json()
+    github_owner = body.get("github_owner", "").strip()
+    if not github_owner:
+        raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "github_owner is required"}})
+    org_id = await org_queries.upsert_org(
+        db,
+        github_owner=github_owner,
+        display_name=body.get("display_name") or github_owner,
+        avatar_url=None,
+    )
+    await user_queries.upsert_org_membership(db, user["id"], org_id, role="admin")
+    org = await org_queries.get_org(db, org_id)
+    return org
+
+
 # ── Applications ──
 
 @router.get("/orgs/{org_id}/apps")
@@ -103,6 +123,16 @@ async def create_application(org_id: str, request: Request):
     )
 
     app = await app_queries.get_app(db, app_id)
+    return app
+
+
+@router.get("/apps/{app_id}")
+async def get_application(app_id: str, request: Request):
+    _require_user(request)
+    db = await get_db()
+    app = await app_queries.get_app(db, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
     return app
 
 
@@ -585,7 +615,7 @@ async def batch_delete_prompts(request: Request):
 @router.get("/prompts/{prompt_id}/export/prompty")
 async def export_prompty(prompt_id: str, request: Request):
     """Export a prompt in .prompty format."""
-    user = _require_user(request)
+    _require_user(request)
     db = await get_db()
 
     prompt = await prompt_queries.get_prompt(db, prompt_id)
@@ -775,6 +805,36 @@ async def tts_preview(prompt_id: str, request: Request):
         return RedirectResponse(audio_url, status_code=302)
     # Local filesystem — serve file directly
     return FileResponse(audio_url, media_type="audio/mpeg")
+
+
+# ── GitHub Discovery ──
+
+@router.get("/github/orgs")
+async def list_github_orgs(request: Request):
+    """List GitHub orgs + personal account available to the authenticated user."""
+    user = _require_user(request)
+    gh = _get_github_for_user(user)
+    try:
+        gh_user = gh.gh.get_user()
+        personal = {"login": gh_user.login, "avatar_url": gh_user.avatar_url, "description": "Personal account"}
+        orgs = gh.list_orgs()
+    finally:
+        gh.close()
+    return {"items": [personal] + orgs}
+
+
+@router.get("/github/repos")
+async def list_github_repos(request: Request, org: str):
+    """List repos for a specific GitHub org or personal account."""
+    user = _require_user(request)
+    gh = _get_github_for_user(user)
+    try:
+        repos = gh.list_org_repos(org)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={"error": {"code": "GITHUB_ERROR", "message": str(e)}})
+    finally:
+        gh.close()
+    return {"items": repos}
 
 
 # ── Sync ──

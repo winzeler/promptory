@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from server.utils.prompty_converter import md_to_prompty, prompty_to_md
 

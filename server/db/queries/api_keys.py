@@ -59,6 +59,34 @@ async def revoke_key(db: aiosqlite.Connection, key_id: str, user_id: str) -> boo
     return result.rowcount > 0
 
 
+async def get_apps_for_key(db: aiosqlite.Connection, key_id: str) -> list[dict]:
+    """Return applications linked to a key's scopes.app_ids JSON array."""
+    async with db.execute(
+        "SELECT scopes FROM api_keys WHERE id = ?", (key_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+        if not row or not row["scopes"]:
+            return []
+
+    import json
+    try:
+        scopes = json.loads(row["scopes"])
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    app_ids = scopes.get("app_ids", [])
+    if not app_ids:
+        return []
+
+    placeholders = ",".join("?" for _ in app_ids)
+    async with db.execute(
+        f"SELECT id, display_name FROM applications WHERE id IN ({placeholders})",
+        app_ids,
+    ) as cursor:
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
 async def update_last_used(db: aiosqlite.Connection, key_id: str) -> None:
     await db.execute(
         "UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?", (key_id,)

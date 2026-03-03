@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from server.db.database import get_db
 from server.db.queries import api_keys as key_queries
+from server.db.queries import applications as app_queries
 from server.auth.api_keys import generate_api_key
 
 router = APIRouter(prefix="/api/v1/admin/api-keys", tags=["api-keys"])
@@ -48,7 +49,23 @@ async def create_api_key(request: Request):
         raise HTTPException(status_code=400, detail={"error": {"code": "VALIDATION_ERROR", "message": "name is required"}})
 
     scopes = body.get("scopes")
-    scopes_json = json.dumps(scopes) if scopes else None
+    if not scopes or not scopes.get("app_ids"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "VALIDATION_ERROR", "message": "scopes.app_ids is required and must be a non-empty list"}},
+        )
+
+    # Validate each app_id exists
+    for aid in scopes["app_ids"]:
+        app_record = await app_queries.get_app(db, aid)
+        if not app_record:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"code": "VALIDATION_ERROR", "message": f"Application '{aid}' not found"}},
+            )
+
+    scopes.setdefault("permissions", ["read"])
+    scopes_json = json.dumps(scopes)
     expires_at = body.get("expires_at")
 
     full_key, key_hash, key_prefix = generate_api_key()
