@@ -228,7 +228,7 @@ export default function PromptEditorPage() {
             onClick={handleExportPrompty}
             className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
           >
-            Export .prompty
+            Export
           </button>
           <span className="text-xs text-gray-400" title="Cmd+S to save">
             {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+S

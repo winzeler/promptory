@@ -132,7 +132,7 @@ export default function PromptBrowserPage() {
             onClick={() => fileInputRef.current?.click()}
             className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
           >
-            Import .prompty
+            Import
           </button>
           <input
             ref={fileInputRef}
