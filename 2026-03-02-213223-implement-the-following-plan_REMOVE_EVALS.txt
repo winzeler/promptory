@@ -1,0 +1,101 @@
+
+ ▐▛███▜▌   Claude Code v2.1.63
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Plan: Remove prompt-evals.yml workflow, keep as template                     │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ The prompt-evals.yml workflow runs in the platform repo but prompt .md files │
+│  live in users' connected GitHub repos, so the workflow never evaluates real │
+│  prompts here. It triggers on all .md changes (including docs like           │
+│ RUNBOOK.md, LINTER_FIX_PLAN_*.md) causing wasted CI time and noisy PR        │
+│ comments. The workflow should be removed from .github/workflows/ and         │
+│ preserved as a deployable template.                                          │
+│                                                                              │
+│ Changes                                                                      │
+│                                                                              │
+│ 1. Move the workflow to a templates directory                                │
+│                                                                              │
+│ - Create templates/prompt-evals.yml (a new directory)                        │
+│ - Copy the current .github/workflows/prompt-evals.yml content there (with    │
+│ the import fix and fs.existsSync guard already applied)                      │
+│ - Add a comment header explaining it's a template for content repos          │
+│                                                                              │
+│ 2. Delete the active workflow                                                │
+│                                                                              │
+│ - Delete .github/workflows/prompt-evals.yml                                  │
+│                                                                              │
+│ 3. Keep server/services/eval_service.py intact                               │
+│                                                                              │
+│ - The eval service is still used by the web UI's eval API endpoint           │
+│ (server/api/eval.py), so generate_promptfoo_config stays                     │
+│                                                                              │
+│ Files                                                                        │
+│                                                                              │
+│ ┌────────┬────────────────────────────────────┐                              │
+│ │ Action │                File                │                              │
+│ ├────────┼────────────────────────────────────┤                              │
+│ │ Create │ templates/prompt-evals.yml         │                              │
+│ ├────────┼────────────────────────────────────┤                              │
+│ │ Delete │ .github/workflows/prompt-evals.yml │                              │
+│ └────────┴────────────────────────────────────┘                              │
+│                                                                              │
+│ Verification                                                                 │
+│                                                                              │
+│ - ls .github/workflows/ — should show only ci.yml and publish.yml            │
+│ - ls templates/ — should show prompt-evals.yml                               │
+│ - python -c "from server.services.eval_service import                        │
+│ generate_promptfoo_config; print('OK')" — eval service still importable      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ Let me read the current workflow file first.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I'll create the template and delete the workflow.
+
+⏺ Bash(mkdir -p /Users/lorenwinzeler/src/futureself/prompt-mgmt/templates)
+  ⎿  Done
+
+⏺ Write(templates/prompt-evals.yml)
+  ⎿  Wrote 232 lines to templates/prompt-evals.yml
+       1 # Template: Prompt Evaluations Workflow
+       2 #
+       3 # Copy this file into .github/workflows/ of your prompt CONTENT 
+         repo
+       4 # (the repo that contains your .md prompt files).
+       5 #
+       6 # This workflow runs promptfoo evaluations on changed prompt fil
+         es
+       7 # when a pull request is opened or updated, and posts results as
+          a
+       8 # PR comment.
+       9 #
+      10 # Prerequisites:
+     … +222 lines (ctrl+o to expand)
+
+⏺ Bash(rm /Users/lorenwinzeler/src/futureself/prompt-mgmt/.github/workflows/prom
+      pt-evals.yml)
+  ⎿  Done
+
+⏺ Now let me verify everything looks correct.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Bash(python -c "from server.services.eval_service import
+      generate_promptfoo_config; print('OK')")
+  ⎿  OK
+
+⏺ All three verifications pass:
+
+  - .github/workflows/ contains only ci.yml and publish.yml
+  - templates/ contains prompt-evals.yml with a comment header explaining it's a
+   template for content repos
+  - eval_service is still importable — the web UI eval endpoint is unaffected
+
+✻ Brewed for 1m 3s

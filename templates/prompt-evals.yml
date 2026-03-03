@@ -1,3 +1,17 @@
+# Template: Prompt Evaluations Workflow
+#
+# Copy this file into .github/workflows/ of your prompt CONTENT repo
+# (the repo that contains your .md prompt files).
+#
+# This workflow runs promptfoo evaluations on changed prompt files
+# when a pull request is opened or updated, and posts results as a
+# PR comment.
+#
+# Prerequisites:
+#   - pip install promptdis (or include server packages in your repo)
+#   - Set OPENAI_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY as repo secrets
+#   - Optionally set EVAL_BLOCK_MERGE=true in repo variables to gate merges
+
 name: Prompt Evaluations
 
 on:
