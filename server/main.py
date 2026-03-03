@@ -14,6 +14,12 @@ from server.db.database import init_db, close_db, get_db
 from server.auth.sessions import cleanup_expired_sessions
 from server.auth.middleware import AuthMiddleware
 from server.auth.rate_limiter import RateLimitMiddleware
+from server.auth.github_oauth import router as auth_router
+from server.api.public import router as public_router
+from server.api.admin import router as admin_router
+from server.api.webhooks import router as webhooks_router
+from server.api.api_keys import router as api_keys_router
+from server.api.eval import router as eval_router
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 logger = logging.getLogger(__name__)
@@ -73,14 +79,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import and register routers
-from server.auth.github_oauth import router as auth_router
-from server.api.public import router as public_router
-from server.api.admin import router as admin_router
-from server.api.webhooks import router as webhooks_router
-from server.api.api_keys import router as api_keys_router
-from server.api.eval import router as eval_router
-
+# Register routers
 app.include_router(auth_router)
 app.include_router(public_router)
 app.include_router(admin_router)

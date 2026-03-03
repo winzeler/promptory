@@ -133,7 +133,6 @@ class TestRunEvaluation:
              patch("server.services.eval_service.asyncio.wait_for", return_value=(b"OK", b"")), \
              patch("server.services.eval_service.Path") as mock_path_cls:
             # Mock the temp directory paths
-            mock_config_path = mock_path_cls.return_value.__truediv__.return_value
             mock_output_path = mock_path_cls.return_value.__truediv__.return_value
             mock_output_path.exists.return_value = True
             mock_output_path.read_text.return_value = '{"results": [{"score": 1.0}]}'

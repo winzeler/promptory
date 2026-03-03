@@ -615,7 +615,7 @@ async def batch_delete_prompts(request: Request):
 @router.get("/prompts/{prompt_id}/export/prompty")
 async def export_prompty(prompt_id: str, request: Request):
     """Export a prompt in .prompty format."""
-    user = _require_user(request)
+    _require_user(request)
     db = await get_db()
 
     prompt = await prompt_queries.get_prompt(db, prompt_id)

@@ -127,7 +127,7 @@ async def create_prompt(
         file_path = f"{subdir}/{data['name']}.md".lstrip("/")
 
     # Commit to GitHub
-    commit_sha = github.create_file(
+    github.create_file(
         app["github_repo"],
         file_path,
         file_content,
