@@ -126,6 +126,16 @@ async def create_application(org_id: str, request: Request):
     return app
 
 
+@router.get("/apps/{app_id}")
+async def get_application(app_id: str, request: Request):
+    _require_user(request)
+    db = await get_db()
+    app = await app_queries.get_app(db, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    return app
+
+
 @router.put("/apps/{app_id}")
 async def update_application(app_id: str, request: Request):
     _require_user(request)

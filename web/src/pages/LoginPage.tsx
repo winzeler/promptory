@@ -9,6 +9,12 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
       <div className="w-full max-w-sm space-y-8 rounded-lg bg-white p-8 shadow-sm">
         <div className="text-center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" className="mx-auto mb-4 h-16 w-16">
+            <circle cx="32" cy="32" r="30" fill="#1f2937" />
+            <polyline points="22,20 10,32 22,44" fill="none" stroke="#f9fafb" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points="42,20 54,32 42,44" fill="none" stroke="#f9fafb" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            <polygon points="36,14 26,34 33,34 28,50 38,30 31,30" fill="#3b82f6" />
+          </svg>
           <h1 className="text-3xl font-bold text-gray-900">Promptdis</h1>
           <p className="mt-2 text-sm text-gray-600">
             Git-native LLM prompt management
