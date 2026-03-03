@@ -69,10 +69,10 @@ jobs:
           import sys, json, yaml
           from pathlib import Path
           from server.services.eval_service import generate_promptfoo_config
-          from server.utils.front_matter import parse_front_matter
+          from server.utils.front_matter import parse_prompt_file
 
           content = Path('$FILE').read_text()
-          fm, body = parse_front_matter(content)
+          fm, body = parse_prompt_file(content)
           eval_cfg = fm.get('eval')
           if not eval_cfg and not body.strip():
               print('Skipping: no eval config or empty body')
@@ -179,7 +179,10 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync('/tmp/eval-comment.md', 'utf8');
+            const path = '/tmp/eval-comment.md';
+            const body = fs.existsSync(path)
+              ? fs.readFileSync(path, 'utf8')
+              : '## Prompt Evaluation Results\n\n:warning: Evaluation step did not produce a report (job failed before report generation).';
             const marker = '<!-- promptdis-eval-results -->';
 
             // Find existing comment to update (avoids duplicate comments on re-runs)
