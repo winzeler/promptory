@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # Ensure the SDK package is importable
-sdk_src = str(Path(__file__).resolve().parent.parent.parent / "sdk" / "src")
+sdk_src = str(Path(__file__).resolve().parent.parent.parent / "sdk-py" / "src")
 if sdk_src not in sys.path:
     sys.path.insert(0, sdk_src)
 

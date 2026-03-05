@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     dynamodb_state_table: str = "promptdis-oauth-states"
     s3_tts_bucket: str = ""
 
-    # ElevenLabs TTS
+    # ElevenLabs TTS (global fallback — prefer per-app keys via provider_configs)
     elevenlabs_api_key: str = ""
     elevenlabs_default_model: str = "eleven_multilingual_v2"
     elevenlabs_default_voice_id: str = ""

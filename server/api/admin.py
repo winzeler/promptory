@@ -30,6 +30,9 @@ from server.services.tts_service import (
 )
 from server.services.sync_service import sync_app
 from server.services.cache_service import prompt_cache
+from server.services.credential_service import resolve_credential, resolve_provider_status
+from server.services.provider_registry import get_registry_public
+from server.db.queries import provider_configs as pc_queries
 from server.utils.crypto import decrypt
 from server.utils.front_matter import parse_prompt_file, serialize_prompt_file
 from server.utils.prompty_converter import md_to_prompty, prompty_to_md
@@ -736,7 +739,7 @@ async def tts_status(request: Request):
 @router.post("/prompts/{prompt_id}/tts-preview")
 async def tts_preview(prompt_id: str, request: Request):
     """Render a prompt and synthesize TTS audio preview."""
-    _require_user(request)
+    user = _require_user(request)
     db = await get_db()
 
     prompt = await prompt_queries.get_prompt(db, prompt_id)
@@ -781,8 +784,11 @@ async def tts_preview(prompt_id: str, request: Request):
             },
         )
 
+    # Resolve per-app ElevenLabs credentials, falling back to global
+    el_creds = await resolve_credential(db, "elevenlabs", app_id=prompt.get("app_id"), user_id=user["id"])
+
     try:
-        audio_url = await synthesize_tts(rendered_body, tts_config)
+        audio_url = await synthesize_tts(rendered_body, tts_config, credentials=el_creds)
     except TTSNotConfiguredError:
         raise HTTPException(
             status_code=503,
@@ -805,6 +811,116 @@ async def tts_preview(prompt_id: str, request: Request):
         return RedirectResponse(audio_url, status_code=302)
     # Local filesystem — serve file directly
     return FileResponse(audio_url, media_type="audio/mpeg")
+
+
+# ── Provider Credentials ──
+
+@router.get("/providers/registry")
+async def get_provider_registry(request: Request):
+    """Return known providers and their models (no secrets)."""
+    _require_user(request)
+    return {"providers": get_registry_public()}
+
+
+@router.get("/apps/{app_id}/providers")
+async def list_app_providers(app_id: str, request: Request):
+    """List all provider configs for an app."""
+    _require_user(request)
+    db = await get_db()
+    configs = await pc_queries.list_provider_configs(db, "app", app_id)
+    return {"items": [pc_queries.mask_secrets(c) for c in configs]}
+
+
+@router.get("/apps/{app_id}/providers/status")
+async def app_provider_status(app_id: str, request: Request):
+    """Show resolved credential status per provider for an app."""
+    user = _require_user(request)
+    db = await get_db()
+    status = await resolve_provider_status(db, app_id, user_id=user["id"])
+    return {"providers": status}
+
+
+@router.get("/apps/{app_id}/providers/{provider}")
+async def get_app_provider(app_id: str, provider: str, request: Request, environment: str | None = None):
+    """Get a single provider config for an app."""
+    _require_user(request)
+    db = await get_db()
+    config = await pc_queries.get_provider_config(db, "app", app_id, provider, environment)
+    if not config:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": f"No config for provider {provider}"}})
+    return pc_queries.mask_secrets(config)
+
+
+@router.put("/apps/{app_id}/providers/{provider}")
+async def upsert_app_provider(app_id: str, provider: str, request: Request):
+    """Create or update a provider config for an app."""
+    _require_user(request)
+    db = await get_db()
+    body = await request.json()
+    config_id = await pc_queries.upsert_provider_config(
+        db, "app", app_id, provider,
+        environment=body.get("environment"),
+        config_json=body.get("config"),
+        secrets=body.get("secrets"),
+    )
+    return {"ok": True, "id": config_id}
+
+
+@router.delete("/apps/{app_id}/providers/{provider}")
+async def delete_app_provider(app_id: str, provider: str, request: Request, environment: str | None = None):
+    """Delete a provider config for an app."""
+    _require_user(request)
+    db = await get_db()
+    deleted = await pc_queries.delete_provider_config(db, "app", app_id, provider, environment)
+    if not deleted:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": f"No config for provider {provider}"}})
+    return {"ok": True}
+
+
+@router.get("/user/providers")
+async def list_user_providers(request: Request):
+    """List all provider configs for the current user."""
+    user = _require_user(request)
+    db = await get_db()
+    configs = await pc_queries.list_provider_configs(db, "user", user["id"])
+    return {"items": [pc_queries.mask_secrets(c) for c in configs]}
+
+
+@router.get("/user/providers/{provider}")
+async def get_user_provider(provider: str, request: Request, environment: str | None = None):
+    """Get a single provider config for the current user."""
+    user = _require_user(request)
+    db = await get_db()
+    config = await pc_queries.get_provider_config(db, "user", user["id"], provider, environment)
+    if not config:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": f"No config for provider {provider}"}})
+    return pc_queries.mask_secrets(config)
+
+
+@router.put("/user/providers/{provider}")
+async def upsert_user_provider(provider: str, request: Request):
+    """Create or update a provider config for the current user."""
+    user = _require_user(request)
+    db = await get_db()
+    body = await request.json()
+    config_id = await pc_queries.upsert_provider_config(
+        db, "user", user["id"], provider,
+        environment=body.get("environment"),
+        config_json=body.get("config"),
+        secrets=body.get("secrets"),
+    )
+    return {"ok": True, "id": config_id}
+
+
+@router.delete("/user/providers/{provider}")
+async def delete_user_provider(provider: str, request: Request, environment: str | None = None):
+    """Delete a provider config for the current user."""
+    user = _require_user(request)
+    db = await get_db()
+    deleted = await pc_queries.delete_provider_config(db, "user", user["id"], provider, environment)
+    if not deleted:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": f"No config for provider {provider}"}})
+    return {"ok": True}
 
 
 # ── GitHub Discovery ──

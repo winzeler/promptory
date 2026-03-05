@@ -1,0 +1,681 @@
+
+ ▐▛███▜▌   Claude Code v2.1.69
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Plan: Rename sdk/ to sdk-py/                                                 │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ The Promptdis monorepo has three SDK directories: sdk/ (Python), sdk-ts/     │
+│ (TypeScript), sdk-go/ (Go). The Python SDK is the only one not following the │
+│  sdk-<lang> naming convention. Renaming sdk/ → sdk-py/ for consistency.      │
+│                                                                              │
+│ This is a rename-only change — no code logic changes, just directory name    │
+│ and path references.                                                         │
+│                                                                              │
+│ ---                                                                          │
+│ Step 1: Rename the directory                                                 │
+│                                                                              │
+│ git mv sdk sdk-py                                                            │
+│                                                                              │
+│ This preserves git history for all files inside.                             │
+│                                                                              │
+│ ---                                                                          │
+│ Step 2: Rename the test directory                                            │
+│                                                                              │
+│ git mv tests/sdk tests/sdk-py                                                │
+│                                                                              │
+│ ---                                                                          │
+│ Step 3: Update path references in code files                                 │
+│                                                                              │
+│ tests/sdk-py/test_client.py (line 12)                                        │
+│                                                                              │
+│ # OLD                                                                        │
+│ sdk_src = str(Path(__file__).resolve().parent.parent.parent / "sdk" / "src") │
+│ # NEW                                                                        │
+│ sdk_src = str(Path(__file__).resolve().parent.parent.parent / "sdk-py" /     │
+│ "src")                                                                       │
+│                                                                              │
+│ tests/sdk-py/test_models.py (line 9)                                         │
+│                                                                              │
+│ # OLD                                                                        │
+│ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "sdk" │
+│  / "src"))                                                                   │
+│ # NEW                                                                        │
+│ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent /       │
+│ "sdk-py" / "src"))                                                           │
+│                                                                              │
+│ tests/sdk-py/test_cache.py (line 9)                                          │
+│                                                                              │
+│ # OLD                                                                        │
+│ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "sdk" │
+│  / "src"))                                                                   │
+│ # NEW                                                                        │
+│ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent /       │
+│ "sdk-py" / "src"))                                                           │
+│                                                                              │
+│ ---                                                                          │
+│ Step 4: Update config files                                                  │
+│                                                                              │
+│ pyproject.toml (root, line 47)                                               │
+│                                                                              │
+│ # OLD                                                                        │
+│ "tests/sdk/test_client.py" = ["E402"]                                        │
+│ # NEW                                                                        │
+│ "tests/sdk-py/test_client.py" = ["E402"]                                     │
+│                                                                              │
+│ .github/workflows/ci.yml (line 20)                                           │
+│                                                                              │
+│ # OLD                                                                        │
+│ run: ruff check server/ sdk/ tests/                                          │
+│ # NEW                                                                        │
+│ run: ruff check server/ sdk-py/ tests/                                       │
+│                                                                              │
+│ .github/workflows/publish.yml (lines 26, 31)                                 │
+│                                                                              │
+│ # OLD                                                                        │
+│ run: python -m build sdk/                                                    │
+│ packages-dir: sdk/dist/                                                      │
+│ # NEW                                                                        │
+│ run: python -m build sdk-py/                                                 │
+│ packages-dir: sdk-py/dist/                                                   │
+│                                                                              │
+│ ---                                                                          │
+│ Step 5: Update documentation in the repo                                     │
+│                                                                              │
+│ CLAUDE.md (line 47)                                                          │
+│                                                                              │
+│ # OLD                                                                        │
+│ - `sdk/src/promptdis/client.py` — Python SDK client                          │
+│ # NEW                                                                        │
+│ - `sdk-py/src/promptdis/client.py` — Python SDK client                       │
+│                                                                              │
+│ README.md — 4 references:                                                    │
+│                                                                              │
+│ 1. Line 185: sdk/README.md link → sdk-py/README.md                           │
+│ 2. Line 357: Project structure sdk/ → sdk-py/                                │
+│ 3. Line 358: Project structure src/promptdis/ comment stays same             │
+│ 4. Line 364: Test structure sdk/ → sdk-py/                                   │
+│                                                                              │
+│ RUNBOOK.md — no direct sdk/ references (only sdk-ts), no changes needed.     │
+│                                                                              │
+│ RENAME-PROMPTDIS.md — 10 references to sdk/:                                 │
+│                                                                              │
+│ Update all occurrences of sdk/ to sdk-py/ (lines 28, 33, 37, 47, 50-52, 116, │
+│  157). This is a historical planning doc so these are retroactive notes.     │
+│                                                                              │
+│ ---                                                                          │
+│ Step 6: Update documentation in dwight_docs                                  │
+│                                                                              │
+│ PROMPT_APP.md — 2 references:                                                │
+│                                                                              │
+│ 1. Line 1672: Project structure sdk/ → sdk-py/                               │
+│ 2. Line 1693: Test structure sdk/ → sdk-py/                                  │
+│                                                                              │
+│ PROMPT_APP_BUILD_CHECKLIST.md — 10 references:                               │
+│                                                                              │
+│ All sdk/ paths → sdk-py/ (lines 171, 206, 337-339, 783, 810-814)             │
+│                                                                              │
+│ PROMPT_CHAINING.md — 2 references:                                           │
+│                                                                              │
+│ 1. Line 64: grep command path sdk/ → sdk-py/                                 │
+│ 2. Line 244: File path table sdk/ → sdk-py/                                  │
+│                                                                              │
+│ ---                                                                          │
+│ Summary of all files to modify                                               │
+│                                                                              │
+│ ┌─────┬─────────────────────────────────────────────────┬──────────────────┐ │
+│ │  #  │                      File                       │     Changes      │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 1   │ sdk/ → sdk-py/                                  │ git mv directory │ │
+│ │     │                                                 │  rename          │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 2   │ tests/sdk/ → tests/sdk-py/                      │ git mv directory │ │
+│ │     │                                                 │  rename          │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 3   │ tests/sdk-py/test_client.py                     │ Path string:     │ │
+│ │     │                                                 │ "sdk" → "sdk-py" │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 4   │ tests/sdk-py/test_models.py                     │ Path string:     │ │
+│ │     │                                                 │ "sdk" → "sdk-py" │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 5   │ tests/sdk-py/test_cache.py                      │ Path string:     │ │
+│ │     │                                                 │ "sdk" → "sdk-py" │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │     │                                                 │ ruff             │ │
+│ │ 6   │ pyproject.toml (root)                           │ per-file-ignores │ │
+│ │     │                                                 │  path            │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 7   │ .github/workflows/ci.yml                        │ ruff check path  │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 8   │ .github/workflows/publish.yml                   │ build + publish  │ │
+│ │     │                                                 │ paths (2 lines)  │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 9   │ CLAUDE.md                                       │ SDK client path  │ │
+│ │     │                                                 │ reference        │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 10  │ README.md                                       │ 4 path           │ │
+│ │     │                                                 │ references       │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 11  │ RENAME-PROMPTDIS.md                             │ ~10 path         │ │
+│ │     │                                                 │ references       │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │     │                                                 │ 2 path           │ │
+│ │ 12  │ ~/dwight_docs/.../PROMPT_APP.md                 │ references in    │ │
+│ │     │                                                 │ project          │ │
+│ │     │                                                 │ structure        │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 13  │ ~/dwight_docs/.../PROMPT_APP_BUILD_CHECKLIST.md │ ~10 path         │ │
+│ │     │                                                 │ references       │ │
+│ ├─────┼─────────────────────────────────────────────────┼──────────────────┤ │
+│ │ 14  │ ~/dwight_docs/.../PROMPT_CHAINING.md            │ 2 path           │ │
+│ │     │                                                 │ references       │ │
+│ └─────┴─────────────────────────────────────────────────┴──────────────────┘ │
+│                                                                              │
+│ Files NOT changed:                                                           │
+│ - sdk-py/pyproject.toml — internal package paths (packages =                 │
+│ ["src/promptdis"]) are relative to the SDK dir, unchanged                    │
+│ - sdk-py/README.md — internal content, no self-referencing paths             │
+│ - sdk-ts/, sdk-go/ — unaffected                                              │
+│ - .txt session/planning files — transient artifacts, skip                    │
+│                                                                              │
+│ ---                                                                          │
+│ Verification                                                                 │
+│                                                                              │
+│ # 1. Confirm directory renamed                                               │
+│ ls -d sdk-py/ sdk-ts/ sdk-go/                                                │
+│                                                                              │
+│ # 2. Confirm no remaining references to bare "sdk/" (excluding sdk-ts,       │
+│ sdk-go, sdk-py)                                                              │
+│ grep -rn '"sdk"' tests/sdk-py/                                               │
+│ grep -rn 'sdk/' pyproject.toml .github/ CLAUDE.md README.md RUNBOOK.md |     │
+│ grep -v 'sdk-py\|sdk-ts\|sdk-go'                                             │
+│                                                                              │
+│ # 3. Run linter                                                              │
+│ ruff check server/ sdk-py/ tests/                                            │
+│                                                                              │
+│ # 4. Run tests                                                               │
+│ python -m pytest tests/ -v                                                   │
+│                                                                              │
+│ # 5. Verify SDK import still works                                           │
+│ python -c "import sys; sys.path.insert(0, 'sdk-py/src'); from promptdis      │
+│ import PromptClient, PromptdisError; print('OK')"                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ I'll implement this rename plan. Let me start with the git moves and then
+  update all references.
+
+⏺ I'll start with the directory renames and then update all references. Let me
+  first read the files I need to modify.
+
+⏺ Bash(git mv sdk sdk-py)
+  ⎿  (No output)
+
+⏺ Bash(git mv tests/sdk tests/sdk-py)
+  ⎿  (No output)
+
+⏺ Now let me read all the files that need path updates in parallel.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Now let me read the config files and docs in parallel.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Now let me read the docs files.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Now let me read the dwight_docs files.
+
+⏺ Searched for 4 patterns (ctrl+o to expand)
+
+⏺ Good. Now I have all the info. Let me make all the edits. I'll do the code
+  files first, then docs.
+
+⏺ Update(tests/sdk-py/test_client.py)
+  ⎿  Added 1 line, removed 1 line
+       9  from pathlib import Path
+      10  
+      11  # Ensure the SDK package is importable
+      12 -sdk_src = str(Path(__file__).resolve().parent.parent.parent / "
+         -sdk" / "src")                                                  
+      12 +sdk_src = str(Path(__file__).resolve().parent.parent.parent / "
+         +sdk-py" / "src")                                               
+      13  if sdk_src not in sys.path:
+      14      sys.path.insert(0, sdk_src)
+      15  
+
+⏺ Update(tests/sdk-py/test_models.py)
+  ⎿  Added 1 line, removed 1 line
+       6  from pathlib import Path
+       7  
+       8  # Add SDK source to path so we can import without installing th
+          e SDK package
+       9 -sys.path.insert(0, str(Path(__file__).resolve().parent.parent.p
+         -arent / "sdk" / "src"))                                        
+       9 +sys.path.insert(0, str(Path(__file__).resolve().parent.parent.p
+         +arent / "sdk-py" / "src"))                                     
+      10  
+      11  from promptdis.models import Prompt  # noqa: E402
+      12  
+
+⏺ Update(tests/sdk-py/test_cache.py)
+  ⎿  Added 1 line, removed 1 line
+       6  from pathlib import Path
+       7  
+       8  # Add SDK source to path so we can import without installing th
+          e SDK package
+       9 -sys.path.insert(0, str(Path(__file__).resolve().parent.parent.p
+         -arent / "sdk" / "src"))                                        
+       9 +sys.path.insert(0, str(Path(__file__).resolve().parent.parent.p
+         +arent / "sdk-py" / "src"))                                     
+      10  
+      11  from promptdis.cache import PromptCache  # noqa: E402
+      12  
+
+⏺ Update(pyproject.toml)
+  ⎿  Added 1 line, removed 1 line
+      44  line-length = 100
+      45  
+      46  [tool.ruff.lint.per-file-ignores]
+      47 -"tests/sdk/test_client.py" = ["E402"]                          
+      47 +"tests/sdk-py/test_client.py" = ["E402"]                       
+      48  
+      49  [tool.pytest.ini_options]
+      50  asyncio_mode = "auto"
+
+⏺ Update(.github/workflows/ci.yml)
+  ⎿  Added 1 line, removed 1 line
+      17        - name: Install dependencies
+      18          run: pip install -e ".[dev]"
+      19        - name: Lint
+      20 -        run: ruff check server/ sdk/ tests/                    
+      20 +        run: ruff check server/ sdk-py/ tests/                 
+      21        - name: Test
+      22          run: pytest tests/ -v
+      23  
+
+⏺ Update(.github/workflows/publish.yml)
+  ⎿  Added 1 line, removed 1 line
+      23          run: pip install build
+      24  
+      25        - name: Build sdist and wheel
+      26 -        run: python -m build sdk/                              
+      26 +        run: python -m build sdk-py/                           
+      27  
+      28        - name: Publish to PyPI
+      29          uses: pypa/gh-action-pypi-publish@release/v1
+
+⏺ Update(.github/workflows/publish.yml)
+  ⎿  Added 1 line, removed 1 line
+      28        - name: Publish to PyPI
+      29          uses: pypa/gh-action-pypi-publish@release/v1
+      30          with:
+      31 -          packages-dir: sdk/dist/                              
+      31 +          packages-dir: sdk-py/dist/                           
+
+⏺ Update(CLAUDE.md)
+  ⎿  Added 1 line, removed 1 line
+      44  - `server/api/admin.py` — Admin CRUD API
+      45  - `server/services/github_service.py` — PyGithub wrapper
+      46  - `server/services/sync_service.py` — GitHub → SQLite sync
+      47 -- `sdk/src/promptdis/client.py` — Python SDK client            
+      47 +- `sdk-py/src/promptdis/client.py` — Python SDK client         
+      48  
+      49  ## Spec
+      50  
+
+⏺ Now the README.md edits:
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      182  })
+      183  ```
+      184  
+      185 -See [`sdk/README.md`](sdk/README.md) for full documentation.  
+      185 +See [`sdk-py/README.md`](sdk-py/README.md) for full documentat
+          +ion.                                                          
+      186  
+      187  ### TypeScript
+      188  
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      354  │       ├── hooks/           # React Query hooks
+      355  │       ├── api/             # API client functions
+      356  │       └── lib/             # Zod schemas, constants
+      357 -├── sdk/                     # Python SDK (pip install promptd
+          -is)                                                           
+      357 +├── sdk-py/                  # Python SDK (pip install promptd
+          +is)                                                           
+      358  │   └── src/promptdis/       # Client, async client, cache, mo
+           dels, exceptions
+      359  ├── sdk-ts/                  # TypeScript SDK (@promptdis/clie
+           nt)
+      360  │   └── src/                 # Client, cache, models, errors
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      361  ├── tests/                   # Python test suite
+      362  │   ├── conftest.py          # Shared fixtures (in-memory DB, 
+           seed data)
+      363  │   ├── server/              # Backend tests (18 files)
+      364 -│   └── sdk/                 # SDK tests (3 files)            
+      364 +│   └── sdk-py/              # SDK tests (3 files)            
+      365  ├── .github/workflows/       # CI, prompt evals, PyPI publish
+      366  ├── pyproject.toml           # Server dependencies
+      367  ├── docker-compose.yml       # Dev environment
+
+⏺ Now the RENAME-PROMPTDIS.md — replace all sdk/ references (excluding sdk-ts,
+  sdk-go, sdk-py):
+
+⏺ Update(RENAME-PROMPTDIS.md)
+  ⎿  Added 1 line, removed 1 line
+      25  ## Execution Order
+      26  
+      27  ### Step 0: Prep
+      28 -- Clean `sdk/src/promptory/__pycache__/`                       
+      28 +- Clean `sdk-py/src/promptory/__pycache__/`                    
+      29  - Verify clean git state
+      30  
+      31  ### Step 1: Directory Rename
+
+⏺ Update(RENAME-PROMPTDIS.md)
+  ⎿  Added 1 line, removed 1 line
+      30  
+      31  ### Step 1: Directory Rename
+      32  ```bash
+      33 -git mv sdk/src/promptory sdk/src/promptdis                     
+      33 +git mv sdk-py/src/promptory sdk-py/src/promptdis               
+      34  ```
+      35  Do this **first** so git tracks it as a rename with identical c
+          ontent.
+      36  
+
+⏺ Update(RENAME-PROMPTDIS.md)
+  ⎿  Added 1 line, removed 1 line
+      34  ```
+      35  Do this **first** so git tracks it as a rename with identical c
+          ontent.
+      36  
+      37 -### Step 2: Python SDK Source (`sdk/src/promptdis/`)           
+      37 +### Step 2: Python SDK Source (`sdk-py/src/promptdis/`)        
+      38  Update 6 files — change all `from promptory.` → `from promptdis
+          .`, `PromptoryError` → `PromptdisError`, docstrings:
+      39  - `__init__.py`
+      40  - `exceptions.py`
+
+⏺ Update(RENAME-PROMPTDIS.md)
+  ⎿  Added 1 line, removed 1 line
+      44  - `cache.py` (only if it has references)
+      45  
+      46  ### Step 3: Python SDK Config
+      47 -- `sdk/pyproject.toml` — name, description, URLs, packages path
+      47 +- `sdk-py/pyproject.toml` — name, description, URLs, packages p
+         +ath                                                            
+      48  
+      49  ### Step 4: Python SDK Tests
+      50  - `tests/sdk/test_client.py` — imports, class names, test metho
+          d names
+
+⏺ Update(RENAME-PROMPTDIS.md)
+  ⎿  Added 3 lines, removed 3 lines
+      47  - `sdk-py/pyproject.toml` — name, description, URLs, packages p
+          ath
+      48  
+      49  ### Step 4: Python SDK Tests
+      50 -- `tests/sdk/test_client.py` — imports, class names, test metho
+         -d names                                                        
+      51 -- `tests/sdk/test_cache.py` — import                           
+      52 -- `tests/sdk/test_models.py` — import                          
+      50 +- `tests/sdk-py/test_client.py` — imports, class names, test me
+         +thod names                                                     
+      51 +- `tests/sdk-py/test_cache.py` — import                        
+      52 +- `tests/sdk-py/test_models.py` — import                       
+      53  
+      54  ### Step 5: Server Source
+      55  - `server/main.py` — docstring, log messages, FastAPI title, se
+          rvice identifier
+
+⏺ Update(RENAME-PROMPTDIS.md)
+  ⎿  Added 1 line, removed 1 line
+      113  ### Step 14: Documentation
+      114  - `CLAUDE.md` — title, description, SDK reference, file path
+      115  - `README.md` — ~20 changes (title, URLs, install commands, im
+           ports, db path)
+      116 -- `sdk/README.md` — package name, imports, URLs               
+      116 +- `sdk-py/README.md` — package name, imports, URLs            
+      117  - `sdk-ts/README.md` — package name, imports, URLs
+      118  - `sdk-go/README.md` — module path, imports, URLs
+      119  
+
+⏺ Update(RENAME-PROMPTDIS.md)
+  ⎿  Added 1 line, removed 1 line
+      154  cd sdk-ts && npx tsc --noEmit
+      155  
+      156  # 6. Quick Python import check
+      157 -python -c "import sys; sys.path.insert(0, 'sdk/src'); from pro
+          -mptdis import PromptClient, PromptdisError"                   
+      157 +python -c "import sys; sys.path.insert(0, 'sdk-py/src'); from 
+          +promptdis import PromptClient, PromptdisError"                
+      158  ```
+
+⏺ Now the dwight_docs files:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md)
+  ⎿  Added 1 line, removed 1 line
+      1669  │           ├── schema.ts                # Zod schemas for fr
+            ont-matter validation
+      1670  │           └── constants.ts             # App constants
+      1671  │
+      1672 -├── sdk/                                  # Python SDK (pip i
+           -nstallable)                                                  
+      1672 +├── sdk-py/                               # Python SDK (pip i
+           +nstallable)                                                  
+      1673  │   ├── pyproject.toml                   # Package config for
+             PyPI
+      1674  │   ├── README.md
+      1675  │   └── src/
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md)
+  ⎿  Added 1 line, removed 1 line
+      1690  │   │   ├── test_sync_service.py
+      1691  │   │   ├── test_render_service.py
+      1692  │   │   └── test_front_matter.py
+      1693 -│   └── sdk/                                                 
+      1693 +│   └── sdk-py/                                              
+      1694  │       ├── test_client.py
+      1695  │       └── test_cache.py
+      1696  │
+
+⏺ Now PROMPT_APP_BUILD_CHECKLIST.md:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 1 line, removed 1 line
+      168  
+      169  ### Sprint 1.7: Python SDK
+      170  
+      171 -> **Key files:** `sdk/src/promptory/client.py`, `sdk/src/promp
+          -tory/async_client.py`, `sdk/src/promptory/cache.py`, `sdk/src/
+          -promptory/models.py`, `sdk/src/promptory/exceptions.py`       
+      171 +> **Key files:** `sdk-py/src/promptory/client.py`, `sdk-py/src
+          +/promptory/async_client.py`, `sdk-py/src/promptory/cache.py`, 
+          +`sdk-py/src/promptory/models.py`, `sdk-py/src/promptory/except
+          +ions.py`                                                      
+      172  
+      173  - [x] `PromptClient` (sync):
+      174    - [x] `__init__(base_url, api_key, cache_ttl=300, cache_max_
+           size=1000, timeout=10.0, retry_count=3)`
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 1 line, removed 1 line
+      203  - [x] Retry logic (retry on `httpx.TransportError`, return sta
+           le on final failure)
+      204  - [x] `pyproject.toml` for PyPI publishing (hatchling build, `
+           promptory[async]` extra)
+      205  - [x] SDK README with usage examples (sync, async, context man
+           ager, caching, exceptions)
+      206 -  - [x] Comprehensive `sdk/README.md` — installation, client o
+          -ptions, Prompt fields, caching flow, error handling, integrati
+          -on example, API reference                                     
+      206 +  - [x] Comprehensive `sdk-py/README.md` — installation, clien
+          +t options, Prompt fields, caching flow, error handling, integr
+          +ation example, API reference                                  
+      207  - [x] TypeScript SDK (`sdk-ts/` — `@promptory/client` v0.1.0)
+      208  
+      209  ### Sprint 1.8: Frontend (9 Pages)
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 3 lines, removed 3 lines
+      334    - [x] `tests/server/test_eval_service.py` — config generatio
+           n, provider mapping, assertions, promptfoo-not-installed, run 
+           lifecycle (13 tests)
+      335    - [x] `tests/server/test_admin_api.py` — admin CRUD: orgs, a
+           pps, prompts (list/filter/search/pagination), detail, toggle a
+           ctive, conflict detection, sync, create/delete with mocked Git
+           Hub, history (25 tests)
+      336    - [x] `tests/server/test_github_service.py` — GitHubService 
+           with mocked PyGithub: list files, get content, history, create
+           /update/delete, diff, bulk commit (18 tests)
+      337 -  - [x] `tests/sdk/test_cache.py` — get/set, TTL, LRU eviction
+          -, stats, invalidate (6 tests)                                 
+      338 -  - [x] `tests/sdk/test_models.py` — from_dict, defaults, rend
+          -er, no-variables (4 tests)                                    
+      339 -  - [x] `tests/sdk/test_client.py` — sync + async clients: get
+          -, get_by_name, render, error codes (401/404/500), caching (hit
+          -/stale/stats/invalidate), context managers, transport errors (
+          -20 tests)                                                     
+      337 +  - [x] `tests/sdk-py/test_cache.py` — get/set, TTL, LRU evict
+          +ion, stats, invalidate (6 tests)                              
+      338 +  - [x] `tests/sdk-py/test_models.py` — from_dict, defaults, r
+          +ender, no-variables (4 tests)                                 
+      339 +  - [x] `tests/sdk-py/test_client.py` — sync + async clients: 
+          +get, get_by_name, render, error codes (401/404/500), caching (
+          +hit/stale/stats/invalidate), context managers, transport error
+          +s (20 tests)                                                  
+      340    - [x] `web/src/lib/schema.test.ts` — Zod schema validation: 
+           modelConfig (6), frontMatter (13) (19 tests)
+      341    - [x] `web/src/api/client.test.ts` — apiFetch: GET/POST, aut
+           h headers, error codes, non-JSON bodies (8 tests)
+      342    - [x] `web/src/hooks/useAutoSave.test.ts` — loadDraft/clearD
+           raft: parse, invalid JSON, missing keys (5 tests)
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 1 line, removed 1 line
+      780  | Component | File Path |
+      781  |-----------|-----------|
+      782  | Project README | `README.md` |
+      783 -| Python SDK README | `sdk/README.md` |                       
+      783 +| Python SDK README | `sdk-py/README.md` |                    
+      784  | TypeScript SDK README | `sdk-ts/README.md` |
+      785  | App entry point | `server/main.py` |
+      786  | Config | `server/config.py` |
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 5 lines, removed 5 lines
+      807  | Prompt models | `server/models/prompt.py` |
+      808  | Org models | `server/models/organization.py` |
+      809  | User models | `server/models/user.py` |
+      810 -| SDK sync client | `sdk/src/promptory/client.py` |           
+      811 -| SDK async client | `sdk/src/promptory/async_client.py` |    
+      812 -| SDK cache | `sdk/src/promptory/cache.py` |                  
+      813 -| SDK models | `sdk/src/promptory/models.py` |                
+      814 -| SDK exceptions | `sdk/src/promptory/exceptions.py` |        
+      810 +| SDK sync client | `sdk-py/src/promptory/client.py` |        
+      811 +| SDK async client | `sdk-py/src/promptory/async_client.py` | 
+      812 +| SDK cache | `sdk-py/src/promptory/cache.py` |               
+      813 +| SDK models | `sdk-py/src/promptory/models.py` |             
+      814 +| SDK exceptions | `sdk-py/src/promptory/exceptions.py` |     
+      815  | TS SDK client | `sdk-ts/src/client.ts` |
+      816  | TS SDK cache | `sdk-ts/src/cache.ts` |
+      817  | TS SDK models | `sdk-ts/src/models.ts` |
+
+⏺ Now PROMPT_CHAINING.md:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_CHAINING.md)
+  ⎿  File must be read first
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_CHAINING.md)
+  ⎿  Added 1 line, removed 1 line
+      61  - No output-to-input variable passing between prompt executions
+      62  - No conditional branching based on LLM output
+      63  
+      64 -**Confirmed by:** `grep -ri "chain\|workflow\|depends_on\|next_
+         -prompt\|dag\|pipeline"` across `prompt-mgmt/sdk/` returns zero 
+         -matches. The `prompt-mgmt/server/api/` directory has no chain-r
+         -elated endpoints.                                              
+      64 +**Confirmed by:** `grep -ri "chain\|workflow\|depends_on\|next_
+         +prompt\|dag\|pipeline"` across `prompt-mgmt/sdk-py/` returns ze
+         +ro matches. The `prompt-mgmt/server/api/` directory has no chai
+         +n-related endpoints.                                           
+      65  
+      66  ---
+      67  
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_CHAINING.md)
+  ⎿  Added 1 line, removed 1 line
+      241  |------|-----------|-----------------|
+      242  | `server/services/render_service.py` | prompt-mgmt | `PromptI
+           ncludeLoader`, `render_prompt_with_includes()` |
+      243  | `tests/server/test_render_service.py` | prompt-mgmt | Includ
+           e composition tests (single, nested, circular, depth) |
+      244 -| `sdk/src/promptory/client.py` | prompt-mgmt | SDK methods: `
+          -get()`, `get_by_name()`, `render()` |                         
+      244 +| `sdk-py/src/promptory/client.py` | prompt-mgmt | SDK methods
+          +: `get()`, `get_by_name()`, `render()` |                      
+      245  | `server/api/admin.py` | prompt-mgmt | Batch CRUD endpoints (
+           not execution) |
+      246  | `tasks/meditation_pipeline.py` | dwight (backend-api) | Cele
+           ry `chain()` pipeline: script → TTS → mix |
+      247  | `services/llm/router.py` | dwight (backend-api) | Hardcoded 
+           prompts, `TASK_MODEL_MAP`, `FAILOVER_CHAIN` |
+
+⏺ All edits done. Now let me verify.
+
+⏺ Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+⏺ No remaining references. Let me verify the SDK import works.
+
+⏺ Bash(python -c "import sys; sys.path.insert(0, 'sdk-py/src'); from promptdis
+      import PromptClient, PromptdisError; print('OK')")
+  ⎿  OK
+
+⏺ All done. Here's a summary of what was changed:
+
+  1. git mv sdk sdk-py — renamed Python SDK directory
+  2. git mv tests/sdk tests/sdk-py — renamed test directory
+  3. 3 test files — updated path strings in test_client.py, test_models.py,
+  test_cache.py
+  4. pyproject.toml — updated ruff per-file-ignores path
+  5. .github/workflows/ci.yml — updated ruff check path
+  6. .github/workflows/publish.yml — updated build and publish paths
+  7. CLAUDE.md — updated SDK client path
+  8. README.md — updated 4 path references (link, project structure x2, test
+  structure)
+  9. RENAME-PROMPTDIS.md — updated ~10 path references
+  10. PROMPT_APP.md — updated 2 project structure references
+  11. PROMPT_APP_BUILD_CHECKLIST.md — updated ~10 path references
+  12. PROMPT_CHAINING.md — updated 2 path references
+
+✻ Worked for 3m 23s

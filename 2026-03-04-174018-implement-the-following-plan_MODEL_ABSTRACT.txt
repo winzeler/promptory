@@ -1,0 +1,1896 @@
+
+ ▐▛███▜▌   Claude Code v2.1.69
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Plan: Per-Application Provider Credentials & Model Abstraction               │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ ElevenLabs API key is currently a global env var in server/config.py, shared │
+│  across all apps. Eval model selection is hardcoded in the frontend. There's │
+│  no way for different applications/repos to use different provider           │
+│ credentials or configure which models they support. This blocks multi-tenant │
+│  usage and makes credential management brittle.                              │
+│                                                                              │
+│ Goal: Move external service credentials (TTS, LLM) to per-application        │
+│ encrypted secrets with user-level fallback. Add a lightweight provider       │
+│ registry so model selections are configurable per-app. First deliverable:    │
+│ write MODEL_ABSTRACTION.md to the spec directory alongside implementation.   │
+│                                                                              │
+│ ---                                                                          │
+│ Phase 1: Foundation                                                          │
+│                                                                              │
+│ 1.1 DB Migration — server/db/migrations/003_provider_configs.sql             │
+│                                                                              │
+│ CREATE TABLE IF NOT EXISTS provider_configs (                                │
+│     id TEXT PRIMARY KEY,                                                     │
+│     scope TEXT NOT NULL CHECK (scope IN ('user', 'app')),                    │
+│     scope_id TEXT NOT NULL,          -- users.id or applications.id          │
+│     provider TEXT NOT NULL,          -- 'elevenlabs', 'openai', 'anthropic', │
+│  'google'                                                                    │
+│     environment TEXT DEFAULT NULL,   -- NULL = all envs, or                  │
+│ 'development'/'staging'/'production'                                         │
+│     config_json TEXT DEFAULT '{}',   -- non-secret settings (default voice,  │
+│ model prefs)                                                                 │
+│     secrets_encrypted TEXT,          -- Fernet-encrypted JSON: {"api_key":   │
+│ "sk-..."}                                                                    │
+│     created_at TEXT DEFAULT (datetime('now')),                               │
+│     updated_at TEXT DEFAULT (datetime('now')),                               │
+│     UNIQUE(scope, scope_id, provider, environment)                           │
+│ );                                                                           │
+│                                                                              │
+│ CREATE INDEX IF NOT EXISTS idx_provider_configs_scope                        │
+│     ON provider_configs(scope, scope_id);                                    │
+│ CREATE INDEX IF NOT EXISTS idx_provider_configs_env                          │
+│     ON provider_configs(scope, scope_id, provider, environment);             │
+│                                                                              │
+│ ALTER TABLE applications ADD COLUMN allowed_models TEXT DEFAULT NULL;    --  │
+│ JSON array                                                                   │
+│ ALTER TABLE applications ADD COLUMN default_providers TEXT DEFAULT NULL; --  │
+│ JSON object                                                                  │
+│                                                                              │
+│ - environment column: NULL means "applies to all environments" (default).    │
+│ Set to 'development', 'staging', or 'production' for env-specific keys. This │
+│  lets an app use a test OpenAI key in dev and a production key in prod.      │
+│ - Unique constraint includes environment so the same provider can have       │
+│ different configs per env.                                                   │
+│ - Reuses existing Fernet encryption from server/utils/crypto.py              │
+│ - Secrets NEVER go to GitHub — they live only in SQLite, encrypted at rest   │
+│                                                                              │
+│ 1.2 Provider Registry — NEW server/services/provider_registry.py             │
+│                                                                              │
+│ Lightweight dict defining known providers:                                   │
+│ - elevenlabs (category: tts) — secret_keys: [api_key], models:               │
+│ [eleven_multilingual_v2, ...]                                                │
+│ - openai (category: llm+tts) — models: [gpt-4o, gpt-4o-mini, ...],           │
+│ tts_models: [tts-1, tts-1-hd]                                                │
+│ - anthropic (category: llm) — models: [claude-sonnet-4-5-20250929, ...]      │
+│ - google (category: llm) — models: [gemini-2.0-flash, ...]                   │
+│                                                                              │
+│ Includes get_provider_for_model(model_str) — replaces hardcoded mapping in   │
+│ eval_service.py:43-50.                                                       │
+│                                                                              │
+│ 1.3 Credential Resolution — NEW server/services/credential_service.py        │
+│                                                                              │
+│ resolve_credential(db, provider, app_id?, user_id?) -> dict | None           │
+│                                                                              │
+│ Resolution cascade (with environment awareness):                             │
+│ 1. App-level + matching environment (e.g., scope=app,                        │
+│ environment='production')                                                    │
+│ 2. App-level + environment=NULL (all-env fallback for this app)              │
+│ 3. User-level + matching environment                                         │
+│ 4. User-level + environment=NULL                                             │
+│ 5. Global env var (backward compat)                                          │
+│                                                                              │
+│ resolve_eval_env_vars(db, models, app_id?, user_id?) -> dict[str, str]       │
+│                                                                              │
+│ Builds env var dict (e.g., {"OPENAI_API_KEY": "sk-..."}) for promptfoo       │
+│ subprocess.                                                                  │
+│                                                                              │
+│ 1.4 DB Queries — NEW server/db/queries/provider_configs.py                   │
+│                                                                              │
+│ CRUD: get, list, upsert, delete for provider_configs table.                  │
+│                                                                              │
+│ 1.5 API Endpoints — MODIFY server/api/admin.py                               │
+│                                                                              │
+│ GET/PUT/DELETE                                                               │
+│ /api/v1/admin/apps/{app_id}/providers/{provider}?environment=production      │
+│ GET             /api/v1/admin/apps/{app_id}/providers           -- list all  │
+│ GET             /api/v1/admin/apps/{app_id}/providers/status    -- resolved  │
+│ status per env                                                               │
+│                                                                              │
+│ GET/PUT/DELETE                                                               │
+│ /api/v1/admin/user/providers/{provider}?environment=production               │
+│ GET             /api/v1/admin/providers/registry                -- known     │
+│ providers (no secrets)                                                       │
+│                                                                              │
+│ - environment query param is optional. Omit = applies to all environments.   │
+│ - GET responses mask secrets: {"api_key": "sk-...4o3F", "has_api_key": true} │
+│ - Status endpoint shows resolution source per environment: {"openai":        │
+│ {"development": "app", "production": "user", "staging": "global"}}           │
+│                                                                              │
+│ ---                                                                          │
+│ Phase 2: Service Integration                                                 │
+│                                                                              │
+│ 2.1 TTS Service — MODIFY server/services/tts_service.py                      │
+│                                                                              │
+│ - Add credentials: dict | None = None param to synthesize_tts()              │
+│ - Use credentials["api_key"] if provided, else fall back to                  │
+│ settings.elevenlabs_api_key                                                  │
+│ - Update callers in server/api/admin.py to resolve via credential_service    │
+│                                                                              │
+│ 2.2 Eval Service — MODIFY server/services/eval_service.py                    │
+│                                                                              │
+│ - Replace hardcoded provider mapping (lines 43-50) with                      │
+│ provider_registry.get_provider_for_model()                                   │
+│ - Add env_vars: dict | None = None param to run_evaluation()                 │
+│ - Pass env={**os.environ, **(env_vars or {})} to subprocess                  │
+│                                                                              │
+│ 2.3 Eval API — MODIFY server/api/eval.py                                     │
+│                                                                              │
+│ - Before firing eval tasks, call resolve_eval_env_vars(db, models, app_id,   │
+│ user_id)                                                                     │
+│ - Pass resolved env vars through to run_evaluation()                         │
+│                                                                              │
+│ 2.4 Promptpex — MODIFY server/services/promptpex_service.py                  │
+│                                                                              │
+│ - Add optional api_key param to generate_tests_with_llm()                    │
+│ - Resolve Google credential from credential_service before calling           │
+│                                                                              │
+│ ---                                                                          │
+│ Phase 3: Frontend                                                            │
+│                                                                              │
+│ 3.1 App Settings — MODIFY web/src/pages/AppSettingsPage.tsx                  │
+│                                                                              │
+│ Add "Provider Credentials" section showing:                                  │
+│ - Each provider as a card with status (configured at: app / user / global /  │
+│ none)                                                                        │
+│ - Configure button → modal with API key (password input) + provider-specific │
+│  config                                                                      │
+│ - Environment selector tab (All / Development / Staging / Production) to set │
+│  env-specific keys                                                           │
+│ - "Allowed Models" multi-select/chip input                                   │
+│                                                                              │
+│ 3.2 New Components                                                           │
+│                                                                              │
+│ - web/src/components/settings/ProviderConfigCard.tsx — reusable provider     │
+│ card                                                                         │
+│ - web/src/components/settings/ProviderSecretModal.tsx — secret entry modal   │
+│                                                                              │
+│ 3.3 User Settings — NEW web/src/pages/UserSettingsPage.tsx                   │
+│                                                                              │
+│ Route: /settings/providers — personal API keys as fallback for all apps.     │
+│                                                                              │
+│ 3.4 EvalRunner — MODIFY web/src/components/eval/EvalRunner.tsx               │
+│                                                                              │
+│ - Replace hardcoded POPULAR_MODELS with dynamic list from app's              │
+│ allowed_models or registry                                                   │
+│ - Show warning badge for models with unconfigured providers                  │
+│                                                                              │
+│ 3.5 Routing — MODIFY web/src/App.tsx, sidebar                                │
+│                                                                              │
+│ - Add /settings/providers route                                              │
+│ - Add "Provider Keys" nav item                                               │
+│                                                                              │
+│ ---                                                                          │
+│ Phase 4: Migration & Polish                                                  │
+│                                                                              │
+│ - Global .env keys remain as lowest-priority fallback — zero breaking        │
+│ changes                                                                      │
+│ - UI shows "Using global server config" when no app/user key but env var     │
+│ exists                                                                       │
+│ - Add allowed_models enforcement in eval and TTS endpoints                   │
+│ - Deprecation notice on global elevenlabs_* config vars (don't remove)       │
+│                                                                              │
+│ ---                                                                          │
+│ SDK Impact                                                                   │
+│                                                                              │
+│ None required. The SDK fetches prompts via public API — provider credentials │
+│  are server-side only. Optionally, add available_providers: list[str] to     │
+│ public API response later.                                                   │
+│                                                                              │
+│ ---                                                                          │
+│ Spec Updates                                                                 │
+│                                                                              │
+│ Update ~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md:               │
+│                                                                              │
+│ 1. Section: Architecture Overview — Add "Provider credential resolution"     │
+│ subsection describing the 4-tier cascade (prompt → app → user → env)         │
+│ 2. Section: Database Schema — Add provider_configs table definition and      │
+│ applications column additions                                                │
+│ 3. Section: API Design — Add provider CRUD endpoints (admin)                 │
+│ 4. Section: Frontend Pages — Add Provider Settings section to App Settings   │
+│ page; add User Settings page                                                 │
+│ 5. Section: Phase Breakdown — Add Phase 5 or append to Phase 4: "Provider    │
+│ Credential Management"                                                       │
+│                                                                              │
+│ Create new spec:                                                             │
+│ ~/src/futureself/dwight_docs/prompt_mgmt/MODEL_ABSTRACTION.md:               │
+│ - Provider registry design (known providers, categories, models)             │
+│ - Credential resolution cascade with diagrams                                │
+│ - Per-app vs user-level vs global precedence rules                           │
+│ - Environment-scoped credentials (dev/staging/prod keys per provider)        │
+│ - Migration guide from global to per-app                                     │
+│                                                                              │
+│ ---                                                                          │
+│ Test Updates                                                                 │
+│                                                                              │
+│ New Tests                                                                    │
+│                                                                              │
+│ tests/server/test_credential_service.py:                                     │
+│ - test_resolve_app_level_credential — app-level secret returned when set     │
+│ - test_resolve_user_level_fallback — user-level returned when no app-level   │
+│ - test_resolve_env_var_fallback — env var returned when no DB configs        │
+│ - test_resolve_cascade_priority — app beats user beats env                   │
+│ - test_resolve_no_credential — returns None when nothing configured          │
+│ - test_resolve_env_specific_credential — env-specific key beats all-env key  │
+│ - test_resolve_env_fallback_to_null — NULL env config used when no           │
+│ env-specific match                                                           │
+│ - test_resolve_eval_env_vars_multi_model — builds correct env dict for       │
+│ multiple providers                                                           │
+│ - test_secrets_encrypted_at_rest — verify Fernet encryption on insert/read   │
+│                                                                              │
+│ tests/server/test_provider_registry.py:                                      │
+│ - test_get_provider_for_model — all known model patterns map correctly       │
+│ - test_unknown_model_returns_none — custom models return None                │
+│ - test_registry_structure — all providers have required keys                 │
+│                                                                              │
+│ tests/server/test_provider_configs_queries.py:                               │
+│ - CRUD operations: upsert, get, list, delete                                 │
+│ - Unique constraint enforcement (scope + scope_id + provider)                │
+│                                                                              │
+│ Modified Tests                                                               │
+│                                                                              │
+│ tests/server/test_eval_service.py:                                           │
+│ - Update provider mapping tests to use provider_registry instead of          │
+│ hardcoded logic                                                              │
+│ - Add test that run_evaluation passes env vars to subprocess                 │
+│ - Add test for env_vars=None backward compatibility                          │
+│                                                                              │
+│ tests/server/test_tts_service.py:                                            │
+│ - Add test for synthesize_tts(credentials={"api_key": "test"}) — uses passed │
+│  key                                                                         │
+│ - Add test for synthesize_tts(credentials=None) — falls back to global       │
+│ settings                                                                     │
+│ - Verify per-app key isolation (two apps, two different keys)                │
+│                                                                              │
+│ API Integration Tests                                                        │
+│                                                                              │
+│ tests/server/test_admin_providers.py:                                        │
+│ - PUT/GET/DELETE provider config for app scope                               │
+│ - PUT/GET/DELETE provider config for user scope                              │
+│ - GET registry returns all providers without secrets                         │
+│ - GET status shows resolved cascade correctly                                │
+│ - Secret masking in GET response (only prefix + suffix visible)              │
+│ - Auth required (403 for non-members)                                        │
+│                                                                              │
+│ ---                                                                          │
+│ What's Missing for App Developers (Future Considerations)                    │
+│                                                                              │
+│ 1. Cost tracking per app — aggregate eval costs by app, with budget alerts   │
+│ 2. Prompt versioning tags — tag git SHAs as "v1.2" releases for stable SDK   │
+│ references                                                                   │
+│ 3. Credential validation — "test connection" flow when saving an API key     │
+│ 4. RBAC for secrets — restrict credential management to app admins vs        │
+│ members                                                                      │
+│ 5. Push notifications — webhook on prompt change to downstream services      │
+│                                                                              │
+│ ---                                                                          │
+│ Files to Create                                                              │
+│                                                                              │
+│ ┌────────────────────────────────────────────────────────────┬────────────┐  │
+│ │                            File                            │  Purpose   │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ New table  │  │
+│ │ server/db/migrations/003_provider_configs.sql              │ + applicat │  │
+│ │                                                            │ ion        │  │
+│ │                                                            │ columns    │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ Known      │  │
+│ │ server/services/provider_registry.py                       │ providers, │  │
+│ │                                                            │  model     │  │
+│ │                                                            │ mapping    │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ Credential │  │
+│ │ server/services/credential_service.py                      │            │  │
+│ │                                                            │ resolution │  │
+│ │                                                            │  cascade   │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │ server/db/queries/provider_configs.py                      │ CRUD       │  │
+│ │                                                            │ queries    │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ Provider   │  │
+│ │ web/src/components/settings/ProviderConfigCard.tsx         │ card       │  │
+│ │                                                            │ component  │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ Secret     │  │
+│ │ web/src/components/settings/ProviderSecretModal.tsx        │ entry      │  │
+│ │                                                            │ modal      │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ User-level │  │
+│ │ web/src/pages/UserSettingsPage.tsx                         │  provider  │  │
+│ │                                                            │ keys       │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │ ~/src/futureself/dwight_docs/prompt_mgmt/MODEL_ABSTRACTION │ Spec       │  │
+│ │ .md                                                        │ document   │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ Credential │  │
+│ │ tests/server/test_credential_service.py                    │            │  │
+│ │                                                            │ resolution │  │
+│ │                                                            │  tests     │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │ tests/server/test_provider_registry.py                     │ Registry   │  │
+│ │                                                            │ tests      │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │ tests/server/test_provider_configs_queries.py              │ DB query   │  │
+│ │                                                            │ tests      │  │
+│ ├────────────────────────────────────────────────────────────┼────────────┤  │
+│ │                                                            │ API integr │  │
+│ │ tests/server/test_admin_providers.py                       │ ation      │  │
+│ │                                                            │ tests      │  │
+│ └────────────────────────────────────────────────────────────┴────────────┘  │
+│                                                                              │
+│ Files to Modify                                                              │
+│                                                                              │
+│ ┌────────────────────────────────────────┬─────────────────────────────────┐ │
+│ │                  File                  │             Change              │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ server/config.py                       │ Add deprecation comments on     │ │
+│ │                                        │ elevenlabs_* fields             │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ server/services/tts_service.py         │ Accept credentials param,       │ │
+│ │                                        │ fallback to global              │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ server/services/eval_service.py        │ Use provider_registry, accept   │ │
+│ │                                        │ env_vars param                  │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ server/services/promptpex_service.py   │ Accept optional api_key param   │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ server/api/admin.py                    │ Add provider CRUD endpoints,    │ │
+│ │                                        │ update TTS/eval callers         │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ server/api/eval.py                     │ Resolve credentials before eval │ │
+│ │                                        │  runs                           │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ web/src/pages/AppSettingsPage.tsx      │ Add provider configuration      │ │
+│ │                                        │ section                         │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ web/src/components/eval/EvalRunner.tsx │ Dynamic model list from         │ │
+│ │                                        │ registry                        │ │
+│ ├────────────────────────────────────────┼─────────────────────────────────┤ │
+│ │ web/src/App.tsx                        │ Add user settings route         │ │
+│ └────────────────────────────────────────┴─────────────────────────────────┘ │
+│                                                                              │
+│ Verification                                                                 │
+│                                                                              │
+│ 1. Unit tests: Run pytest tests/server/test_credential_service.py            │
+│ test_provider_registry.py test_provider_configs_queries.py                   │
+│ 2. API tests: Run pytest tests/server/test_admin_providers.py                │
+│ 3. Manual E2E:                                                               │
+│   - Start server, navigate to app settings                                   │
+│   - Add ElevenLabs API key for an app                                        │
+│   - Verify TTS preview works with per-app key                                │
+│   - Remove per-app key, verify fallback to global env var                    │
+│   - Add OpenAI key for an app, run eval with gpt-4o — verify it uses per-app │
+│  key                                                                         │
+│   - Set user-level key, remove app-level key, verify fallback                │
+│ 4. Backward compat: Remove all provider_configs rows, verify existing .env   │
+│ workflow still works                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ Let me start by understanding the existing codebase structure.
+
+⏺ I'll start by exploring the existing codebase to understand the current
+  structure, then implement phase by phase.
+
+⏺ Explore(Explore codebase structure)
+  ⎿  Done (25 tool uses · 71.6k tokens · 1m 24s)
+  (ctrl+o to expand)
+
+⏺ Now let me read the specific files I need to modify closely.
+
+⏺ Read 10 files (ctrl+o to expand)
+
+⏺ Now let me check existing tests and the Sidebar component for nav items.
+
+⏺ Searched for 1 pattern, read 3 files (ctrl+o to expand)
+
+⏺ Now let me check existing test patterns and the db queries __init__.py.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Let me check the conftest to understand the test fixture patterns.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Good, I now have a thorough understanding of the codebase. Let me implement
+  this in phases, starting with the backend foundation files (which are all
+  independent), then modifications.
+
+  I'll create all the new backend files first in parallel:
+
+⏺ Write(server/db/migrations/003_provider_configs.sql)
+  ⎿  Wrote 28 lines to server/db/migrations/003_provider_configs.sql
+       1 -- Migration 003: Provider configurations for per-app/user crede
+         ntials
+       2 -- Secrets are Fernet-encrypted at rest and NEVER synced to GitH
+         ub.
+       3 
+       4 CREATE TABLE IF NOT EXISTS provider_configs (
+       5     id TEXT PRIMARY KEY,
+       6     scope TEXT NOT NULL CHECK (scope IN ('user', 'app')),
+       7     scope_id TEXT NOT NULL,          -- users.id or applications
+         .id
+       8     provider TEXT NOT NULL,          -- 'elevenlabs', 'openai', 
+         'anthropic', 'google'
+       9     environment TEXT DEFAULT NULL,   -- NULL = all envs, or 'dev
+         elopment'/'staging'/'production'
+      10     config_json TEXT DEFAULT '{}',   -- non-secret settings (def
+         ault voice, model prefs)
+     … +18 lines (ctrl+o to expand)
+
+⏺ Write(server/services/provider_registry.py)
+  ⎿  Wrote 118 lines to server/services/provider_registry.py
+       1 """Provider registry — known providers, model mapping, and metad
+         ata."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 PROVIDERS: dict[str, dict] = {
+       6     "elevenlabs": {
+       7         "category": "tts",
+       8         "secret_keys": ["api_key"],
+       9         "models": [
+      10             "eleven_multilingual_v2",
+     … +108 lines (ctrl+o to expand)
+
+⏺ Write(server/db/queries/provider_configs.py)
+  ⎿  Wrote 147 lines to server/db/queries/provider_configs.py
+       1 """CRUD queries for provider_configs table."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 import json
+       6 import uuid
+       7 
+       8 import aiosqlite
+       9 
+      10 from server.utils.crypto import encrypt, decrypt
+     … +137 lines (ctrl+o to expand)
+
+⏺ Write(server/services/credential_service.py)
+  ⎿  Wrote 145 lines to server/services/credential_service.py
+       1 """Credential resolution service — cascading lookup for provider
+          API keys."""
+       2 
+       3 from __future__ import annotations
+       4 
+       5 import os
+       6 import logging
+       7 
+       8 import aiosqlite
+       9 
+      10 from server.db.queries import provider_configs as pc_queries
+     … +135 lines (ctrl+o to expand)
+
+⏺ Now let me modify the existing backend files — config.py, eval_service.py,
+  tts_service.py, promptpex_service.py, and the API files:
+
+⏺ Update(server/config.py)
+  ⎿  Added 1 line, removed 1 line
+      31      dynamodb_state_table: str = "promptdis-oauth-states"
+      32      s3_tts_bucket: str = ""
+      33  
+      34 -    # ElevenLabs TTS                                           
+      34 +    # ElevenLabs TTS (global fallback — prefer per-app keys via
+         + provider_configs)                                             
+      35      elevenlabs_api_key: str = ""
+      36      elevenlabs_default_model: str = "eleven_multilingual_v2"
+      37      elevenlabs_default_voice_id: str = ""
+
+⏺ Update(server/services/eval_service.py)
+  ⎿  Added 3 lines, removed 10 lines
+      38      variables = variables or {}
+      39  
+      40      # Map model strings to promptfoo provider format
+      41 -    providers = []                                             
+      42 -    for model in models:                                       
+      43 -        if "gemini" in model.lower() or "google" in model.lower
+         -():                                                            
+      44 -            providers.append(f"google:{model}")                
+      45 -        elif "gpt" in model.lower() or "openai" in model.lower(
+         -):                                                             
+      46 -            providers.append(f"openai:{model}")                
+      47 -        elif "claude" in model.lower() or "anthropic" in model.
+         -lower():                                                       
+      48 -            providers.append(f"anthropic:{model}")             
+      49 -        else:                                                  
+      50 -            providers.append(model)                            
+      41 +    from server.services.provider_registry import get_promptfoo
+         +_provider                                                      
+      42  
+      43 +    providers = [get_promptfoo_provider(model) for model in mod
+         +els]                                                           
+      44 +                                                               
+      45      # Build assertions from eval config
+      46      assertions = []
+      47      for assertion in eval_config.get("assertions", []):
+
+⏺ Update(server/services/eval_service.py)
+  ⎿  Added 1 line
+      75      model: str,
+      76      eval_config: dict | None = None,
+      77      variables: dict | None = None,
+      78 +    env_vars: dict | None = None,                              
+      79  ) -> dict:
+      80      """Run a promptfoo evaluation for a single model.
+      81  
+
+⏺ Update(server/services/eval_service.py)
+  ⎿  Added 4 lines
+      111          config_path.write_text(yaml.dump(config, default_flow_
+           style=False))
+      112  
+      113          try:
+      114 +            # Merge resolved provider credentials into subproc
+          +ess environment                                               
+      115 +            subprocess_env = {**os.environ, **(env_vars or {})
+          +}                                                             
+      116 +                                                              
+      117              proc = await asyncio.create_subprocess_exec(
+      118                  promptfoo_bin, "eval",
+      119                  "--config", str(config_path),
+     ...
+      122                  stdout=asyncio.subprocess.PIPE,
+      123                  stderr=asyncio.subprocess.PIPE,
+      124                  cwd=tmpdir,
+      125 +                env=subprocess_env,                           
+      126              )
+      127              stdout, stderr = await asyncio.wait_for(proc.commu
+           nicate(), timeout=120)
+      128  
+
+⏺ Now add the import os to eval_service.py since we're using it:
+
+⏺ Update(server/services/eval_service.py)
+  ⎿  Added 1 line
+       5  import asyncio
+       6  import json
+       7  import logging
+       8 +import os                                                      
+       9  import shutil
+      10  import tempfile
+      11  import time
+
+⏺ Now modify tts_service.py to accept credentials param:
+
+⏺ Update(server/services/tts_service.py)
+  ⎿  Added 14 lines, removed 3 lines
+      61      return url
+      62  
+      63  
+      64 -async def synthesize_tts(rendered_body: str, tts_config: dict) 
+         --> str:                                                        
+      64 +async def synthesize_tts(                                      
+      65 +    rendered_body: str,                                        
+      66 +    tts_config: dict,                                          
+      67 +    credentials: dict | None = None,                           
+      68 +) -> str:                                                      
+      69      """Synthesize text to speech via ElevenLabs. Returns URL/pa
+          th to audio.
+      70  
+      71 +    Args:                                                      
+      72 +        rendered_body: The rendered text to synthesize.        
+      73 +        tts_config: TTS configuration (voice_id, model_id, voic
+         +e settings).                                                   
+      74 +        credentials: Optional per-app/user credentials dict wit
+         +h 'api_key'.                                                   
+      75 +            Falls back to global settings.elevenlabs_api_key if
+         + not provided.                                                 
+      76 +                                                               
+      77      Raises:
+      78          TTSNotConfiguredError: If no API key is set.
+      79          TTSError: If the API call fails.
+      80      """
+      71 -    if not is_tts_configured():                                
+      81 +    api_key = (credentials or {}).get("api_key") or settings.el
+         +evenlabs_api_key                                               
+      82 +    if not api_key:                                            
+      83          raise TTSNotConfiguredError("ElevenLabs API key not con
+          figured")
+      84  
+      85      # Check cache first
+     ...
+       96  
+       97      url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice
+           _id}"
+       98      headers = {
+       88 -        "xi-api-key": settings.elevenlabs_api_key,            
+       99 +        "xi-api-key": api_key,                                
+      100          "Content-Type": "application/json",
+      101          "Accept": "audio/mpeg",
+      102      }
+
+⏺ Now modify promptpex_service.py to accept optional api_key:
+
+⏺ Update(server/services/promptpex_service.py)
+  ⎿  Added 6 lines
+      123      prompt_body: str,
+      124      prompt_name: str | None = None,
+      125      model: str = "gemini-2.0-flash",
+      126 +    api_key: str | None = None,                               
+      127  ) -> list[dict]:
+      128      """Generate test cases using an LLM.
+      129  
+      130      Uses Google Generative AI if available, otherwise returns 
+           a helpful error.
+      131      This is the main entry point for the PromptPex integration
+           .
+      132 +                                                              
+      133 +    Args:                                                     
+      134 +        api_key: Optional Google API key. Falls back to GOOGLE
+          +_API_KEY env var.                                             
+      135      """
+      136      user_message = generate_test_prompt(prompt_body, prompt_na
+           me)
+      137  
+      138      try:
+      139          import google.generativeai as genai
+      140  
+      141 +        if api_key:                                           
+      142 +            genai.configure(api_key=api_key)                  
+      143          gen_model = genai.GenerativeModel(model)
+      144          response = gen_model.generate_content(
+      145              [
+
+⏺ Now let me add the provider CRUD endpoints to admin.py and update the TTS/eval
+   callers:
+
+⏺ Update(server/api/admin.py)
+  ⎿  Added 3 lines
+      30  )
+      31  from server.services.sync_service import sync_app
+      32  from server.services.cache_service import prompt_cache
+      33 +from server.services.credential_service import resolve_credenti
+         +al, resolve_provider_status                                    
+      34 +from server.services.provider_registry import get_registry_publ
+         +ic                                                             
+      35 +from server.db.queries import provider_configs as pc_queries   
+      36  from server.utils.crypto import decrypt
+      37  from server.utils.front_matter import parse_prompt_file, serial
+          ize_prompt_file
+      38  from server.utils.prompty_converter import md_to_prompty, promp
+          ty_to_md
+
+⏺ Now add the provider CRUD endpoints to admin.py. I'll add them before the sync
+   section:
+
+⏺ Update(server/api/admin.py)
+  ⎿  Added 110 lines
+      810      return FileResponse(audio_url, media_type="audio/mpeg")
+      811  
+      812  
+      813 +# ── Provider Credentials ──                                  
+      814 +                                                              
+      815 +@router.get("/providers/registry")                            
+      816 +async def get_provider_registry(request: Request):            
+      817 +    """Return known providers and their models (no secrets).""
+          +"                                                             
+      818 +    _require_user(request)                                    
+      819 +    return {"providers": get_registry_public()}               
+      820 +                                                              
+      821 +                                                              
+      822 +@router.get("/apps/{app_id}/providers")                       
+      823 +async def list_app_providers(app_id: str, request: Request):  
+      824 +    """List all provider configs for an app."""               
+      825 +    _require_user(request)                                    
+      826 +    db = await get_db()                                       
+      827 +    configs = await pc_queries.list_provider_configs(db, "app"
+          +, app_id)                                                     
+      828 +    return {"items": [pc_queries.mask_secrets(c) for c in conf
+          +igs]}                                                         
+      829 +                                                              
+      830 +                                                              
+      831 +@router.get("/apps/{app_id}/providers/status")                
+      832 +async def app_provider_status(app_id: str, request: Request): 
+      833 +    """Show resolved credential status per provider for an app
+          +."""                                                          
+      834 +    user = _require_user(request)                             
+      835 +    db = await get_db()                                       
+      836 +    status = await resolve_provider_status(db, app_id, user_id
+          +=user["id"])                                                  
+      837 +    return {"providers": status}                              
+      838 +                                                              
+      839 +                                                              
+      840 +@router.get("/apps/{app_id}/providers/{provider}")            
+      841 +async def get_app_provider(app_id: str, provider: str, request
+          +: Request, environment: str | None = None):                   
+      842 +    """Get a single provider config for an app."""            
+      843 +    _require_user(request)                                    
+      844 +    db = await get_db()                                       
+      845 +    config = await pc_queries.get_provider_config(db, "app", a
+          +pp_id, provider, environment)                                 
+      846 +    if not config:                                            
+      847 +        raise HTTPException(status_code=404, detail={"error": 
+          +{"code": "NOT_FOUND", "message": f"No config for provider {pro
+          +vider}"}})                                                    
+      848 +    return pc_queries.mask_secrets(config)                    
+      849 +                                                              
+      850 +                                                              
+      851 +@router.put("/apps/{app_id}/providers/{provider}")            
+      852 +async def upsert_app_provider(app_id: str, provider: str, requ
+          +est: Request):                                                
+      853 +    """Create or update a provider config for an app."""      
+      854 +    _require_user(request)                                    
+      855 +    db = await get_db()                                       
+      856 +    body = await request.json()                               
+      857 +    config_id = await pc_queries.upsert_provider_config(      
+      858 +        db, "app", app_id, provider,                          
+      859 +        environment=body.get("environment"),                  
+      860 +        config_json=body.get("config"),                       
+      861 +        secrets=body.get("secrets"),                          
+      862 +    )                                                         
+      863 +    return {"ok": True, "id": config_id}                      
+      864 +                                                              
+      865 +                                                              
+      866 +@router.delete("/apps/{app_id}/providers/{provider}")         
+      867 +async def delete_app_provider(app_id: str, provider: str, requ
+          +est: Request, environment: str | None = None):                
+      868 +    """Delete a provider config for an app."""                
+      869 +    _require_user(request)                                    
+      870 +    db = await get_db()                                       
+      871 +    deleted = await pc_queries.delete_provider_config(db, "app
+          +", app_id, provider, environment)                             
+      872 +    if not deleted:                                           
+      873 +        raise HTTPException(status_code=404, detail={"error": 
+          +{"code": "NOT_FOUND", "message": f"No config for provider {pro
+          +vider}"}})                                                    
+      874 +    return {"ok": True}                                       
+      875 +                                                              
+      876 +                                                              
+      877 +@router.get("/user/providers")                                
+      878 +async def list_user_providers(request: Request):              
+      879 +    """List all provider configs for the current user."""     
+      880 +    user = _require_user(request)                             
+      881 +    db = await get_db()                                       
+      882 +    configs = await pc_queries.list_provider_configs(db, "user
+          +", user["id"])                                                
+      883 +    return {"items": [pc_queries.mask_secrets(c) for c in conf
+          +igs]}                                                         
+      884 +                                                              
+      885 +                                                              
+      886 +@router.get("/user/providers/{provider}")                     
+      887 +async def get_user_provider(provider: str, request: Request, e
+          +nvironment: str | None = None):                               
+      888 +    """Get a single provider config for the current user."""  
+      889 +    user = _require_user(request)                             
+      890 +    db = await get_db()                                       
+      891 +    config = await pc_queries.get_provider_config(db, "user", 
+          +user["id"], provider, environment)                            
+      892 +    if not config:                                            
+      893 +        raise HTTPException(status_code=404, detail={"error": 
+          +{"code": "NOT_FOUND", "message": f"No config for provider {pro
+          +vider}"}})                                                    
+      894 +    return pc_queries.mask_secrets(config)                    
+      895 +                                                              
+      896 +                                                              
+      897 +@router.put("/user/providers/{provider}")                     
+      898 +async def upsert_user_provider(provider: str, request: Request
+          +):                                                            
+      899 +    """Create or update a provider config for the current user
+          +."""                                                          
+      900 +    user = _require_user(request)                             
+      901 +    db = await get_db()                                       
+      902 +    body = await request.json()                               
+      903 +    config_id = await pc_queries.upsert_provider_config(      
+      904 +        db, "user", user["id"], provider,                     
+      905 +        environment=body.get("environment"),                  
+      906 +        config_json=body.get("config"),                       
+      907 +        secrets=body.get("secrets"),                          
+      908 +    )                                                         
+      909 +    return {"ok": True, "id": config_id}                      
+      910 +                                                              
+      911 +                                                              
+      912 +@router.delete("/user/providers/{provider}")                  
+      913 +async def delete_user_provider(provider: str, request: Request
+          +, environment: str | None = None):                            
+      914 +    """Delete a provider config for the current user."""      
+      915 +    user = _require_user(request)                             
+      916 +    db = await get_db()                                       
+      917 +    deleted = await pc_queries.delete_provider_config(db, "use
+          +r", user["id"], provider, environment)                        
+      918 +    if not deleted:                                           
+      919 +        raise HTTPException(status_code=404, detail={"error": 
+          +{"code": "NOT_FOUND", "message": f"No config for provider {pro
+          +vider}"}})                                                    
+      920 +    return {"ok": True}                                       
+      921 +                                                              
+      922 +                                                              
+      923  # ── GitHub Discovery ──
+      924  
+      925  @router.get("/github/orgs")
+
+⏺ Now update the TTS preview endpoint to resolve credentials:
+
+⏺ Update(server/api/admin.py)
+  ⎿  Added 4 lines, removed 1 line
+      784              },
+      785          )
+      786  
+      787 +    # Resolve per-app ElevenLabs credentials, falling back to 
+          +global                                                        
+      788 +    el_creds = await resolve_credential(db, "elevenlabs", app_
+          +id=prompt.get("app_id"), user_id=user["id"])                  
+      789 +                                                              
+      790      try:
+      788 -        audio_url = await synthesize_tts(rendered_body, tts_co
+          -nfig)                                                         
+      791 +        audio_url = await synthesize_tts(rendered_body, tts_co
+          +nfig, credentials=el_creds)                                   
+      792      except TTSNotConfiguredError:
+      793          raise HTTPException(
+      794              status_code=503,
+
+⏺ Also need to update the tts_preview handler — it needs user from
+  _require_user:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ I need to capture the user from _require_user:
+
+⏺ Update(server/api/admin.py)
+  ⎿  Added 1 line, removed 1 line
+      739  @router.post("/prompts/{prompt_id}/tts-preview")
+      740  async def tts_preview(prompt_id: str, request: Request):
+      741      """Render a prompt and synthesize TTS audio preview."""
+      742 -    _require_user(request)                                    
+      742 +    user = _require_user(request)                             
+      743      db = await get_db()
+      744  
+      745      prompt = await prompt_queries.get_prompt(db, prompt_id)
+
+⏺ Now update the eval API to resolve credentials before running:
+
+⏺ Update(server/api/eval.py)
+  ⎿  Added 1 line
+      11  from server.db.queries import prompts as prompt_queries
+      12  from server.db.queries import eval_runs as eval_queries
+      13  from server.services.eval_service import run_evaluation
+      14 +from server.services.credential_service import resolve_eval_env
+         +_vars, resolve_credential                                      
+      15  
+      16  router = APIRouter(prefix="/api/v1/admin", tags=["eval"])
+      17  
+
+⏺ Update(server/api/eval.py)
+  ⎿  Added 7 lines, removed 1 line
+      26  @router.post("/prompts/{prompt_id}/eval")
+      27  async def run_eval(prompt_id: str, request: Request):
+      28      """Run an evaluation for a prompt against one or more model
+          s."""
+      29 -    _require_user(request)                                     
+      29 +    user = _require_user(request)                              
+      30      db = await get_db()
+      31      body = await request.json()
+      32  
+     ...
+      42      eval_config = fm.get("eval")
+      43      prompt_body = prompt.get("body") or fm.get("_body", "")
+      44  
+      45 +    # Resolve provider credentials for all models used in this 
+         +eval                                                           
+      46 +    env_vars = await resolve_eval_env_vars(                    
+      47 +        db, models, app_id=prompt.get("app_id"), user_id=user["
+         +id"],                                                          
+      48 +    )                                                          
+      49 +                                                               
+      50      # Create eval run records
+      51      runs = []
+      52      for model in models:
+     ...
+      65              await run_evaluation(
+      66                  db, run_info["id"], prompt_body, run_info["mode
+          l"],
+      67                  eval_config=eval_config, variables=variables,
+      68 +                env_vars=env_vars,                             
+      69              )
+      70  
+      71      asyncio.create_task(_run_all())
+
+⏺ Now update the generate-tests endpoint to resolve Google credential:
+
+⏺ Update(server/api/eval.py)
+  ⎿  Added 6 lines, removed 2 lines
+      117  @router.post("/prompts/{prompt_id}/generate-tests")
+      118  async def generate_tests(prompt_id: str, request: Request):
+      119      """Auto-generate test cases for a prompt using PromptPex (
+           LLM-based test generation)."""
+      120 -    _require_user(request)                                    
+      120 +    user = _require_user(request)                             
+      121      db = await get_db()
+      122  
+      123      prompt = await prompt_queries.get_prompt(db, prompt_id)
+     ...
+      134      if not prompt_body.strip():
+      135          raise HTTPException(status_code=400, detail={"error": 
+           {"code": "EMPTY_PROMPT", "message": "Prompt has no body to gen
+           erate tests from"}})
+      136  
+      137 +    # Resolve Google credential for test generation           
+      138 +    google_cred = await resolve_credential(db, "google", app_i
+          +d=prompt.get("app_id"), user_id=user["id"])                   
+      139 +    google_api_key = (google_cred or {}).get("api_key")       
+      140 +                                                              
+      141      from server.services.promptpex_service import generate_tes
+           ts_with_llm, tests_to_eval_config
+      142  
+      139 -    tests = await generate_tests_with_llm(prompt_body, prompt_
+          -name=prompt.get("name"), model=model)                         
+      143 +    tests = await generate_tests_with_llm(prompt_body, prompt_
+          +name=prompt.get("name"), model=model, api_key=google_api_key) 
+      144      eval_config = tests_to_eval_config(tests)
+      145  
+      146      return {
+
+⏺ Now let's create the frontend files. First, the new components and pages:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Bash(mkdir -p /Users/lorenwinzeler/src/futureself/prompt-mgmt/web/src/componen
+      ts/settings)
+  ⎿  Done
+
+⏺ Write(web/src/components/settings/ProviderConfigCard.tsx)
+  ⎿  Wrote 77 lines to web/src/components/settings/ProviderConfigCard.tsx
+       1 import { useState } from "react";
+       2 
+       3 export interface ProviderStatus {
+       4   configured: boolean;
+       5   source: string | null;
+       6 }
+       7 
+       8 interface Props {
+       9   provider: string;
+      10   category: string;
+     … +67 lines (ctrl+o to expand)
+
+⏺ Write(web/src/components/settings/ProviderSecretModal.tsx)
+  ⎿  Wrote 102 lines to web/src/components/settings/ProviderSecretModal.tsx
+       1 import { useState } from "react";
+       2 
+       3 interface Props {
+       4   provider: string;
+       5   scope: "app" | "user";
+       6   scopeId: string;
+       7   onClose: () => void;
+       8   onSave: (data: { secrets: Record<string, string>; config?: Rec
+         ord<string, string>; environment?: string }) => void;
+       9   isSaving: boolean;
+      10 }
+     … +92 lines (ctrl+o to expand)
+
+⏺ Now create the UserSettingsPage:
+
+⏺ Write(web/src/pages/UserSettingsPage.tsx)
+  ⎿  Wrote 113 lines to web/src/pages/UserSettingsPage.tsx
+       1 import { useState } from "react";
+       2 import { useQuery, useMutation, useQueryClient } from "@tanstack
+         /react-query";
+       3 import { apiFetch } from "../api/client";
+       4 import ProviderConfigCard, {
+       5   type ProviderStatus,
+       6 } from "../components/settings/ProviderConfigCard";
+       7 import ProviderSecretModal from "../components/settings/Provider
+         SecretModal";
+       8 
+       9 interface RegistryProvider {
+      10   category: string;
+     … +103 lines (ctrl+o to expand)
+
+⏺ Now update AppSettingsPage.tsx to add the provider credentials section:
+
+⏺ Update(web/src/pages/AppSettingsPage.tsx)
+  ⎿  Added 4 lines
+       3  import { useQuery, useMutation, useQueryClient } from "@tanstac
+          k/react-query";
+       4  import { apiFetch } from "../api/client";
+       5  import { App } from "../api/prompts";
+       6 +import ProviderConfigCard, {                                   
+       7 +  type ProviderStatus,                                         
+       8 +} from "../components/settings/ProviderConfigCard";            
+       9 +import ProviderSecretModal from "../components/settings/Provide
+         +rSecretModal";                                                 
+      10  
+      11  export default function AppSettingsPage() {
+      12    const { appId } = useParams<{ appId: string }>();
+
+⏺ Update(web/src/pages/AppSettingsPage.tsx)
+  ⎿  Added 1 line
+      13    const navigate = useNavigate();
+      14    const queryClient = useQueryClient();
+      15    const [showDeleteConfirm, setShowDeleteConfirm] = useState(fa
+          lse);
+      16 +  const [configuringProvider, setConfiguringProvider] = useStat
+         +e<string | null>(null);                                        
+      17  
+      18    const { data: app, isLoading } = useQuery({
+      19      queryKey: ["app", appId],
+
+⏺ Update(web/src/pages/AppSettingsPage.tsx)
+  ⎿  Added 47 lines
+      29      },
+      30    });
+      31  
+      32 +  const { data: registry } = useQuery({                        
+      33 +    queryKey: ["provider-registry"],                           
+      34 +    queryFn: () =>                                             
+      35 +      apiFetch<{ providers: Record<string, { category: string; 
+         +models: string[] }> }>(                                        
+      36 +        "/api/v1/admin/providers/registry"                     
+      37 +      ),                                                       
+      38 +    enabled: !!appId,                                          
+      39 +  });                                                          
+      40 +                                                               
+      41 +  const { data: providerStatus } = useQuery({                  
+      42 +    queryKey: ["app-provider-status", appId],                  
+      43 +    queryFn: () =>                                             
+      44 +      apiFetch<{ providers: Record<string, ProviderStatus> }>( 
+      45 +        `/api/v1/admin/apps/${appId}/providers/status`         
+      46 +      ),                                                       
+      47 +    enabled: !!appId,                                          
+      48 +  });                                                          
+      49 +                                                               
+      50 +  const saveProviderMutation = useMutation({                   
+      51 +    mutationFn: (data: {                                       
+      52 +      provider: string;                                        
+      53 +      secrets: Record<string, string>;                         
+      54 +      environment?: string;                                    
+      55 +    }) =>                                                      
+      56 +      apiFetch(`/api/v1/admin/apps/${appId}/providers/${data.pr
+         +ovider}`, {                                                    
+      57 +        method: "PUT",                                         
+      58 +        body: JSON.stringify({                                 
+      59 +          secrets: data.secrets,                               
+      60 +          environment: data.environment,                       
+      61 +        }),                                                    
+      62 +      }),                                                      
+      63 +    onSuccess: () => {                                         
+      64 +      queryClient.invalidateQueries({ queryKey: ["app-provider-
+         +status", appId] });                                            
+      65 +      setConfiguringProvider(null);                            
+      66 +    },                                                         
+      67 +  });                                                          
+      68 +                                                               
+      69 +  const removeProviderMutation = useMutation({                 
+      70 +    mutationFn: (provider: string) =>                          
+      71 +      apiFetch(`/api/v1/admin/apps/${appId}/providers/${provide
+         +r}`, {                                                         
+      72 +        method: "DELETE",                                      
+      73 +      }),                                                      
+      74 +    onSuccess: () => {                                         
+      75 +      queryClient.invalidateQueries({ queryKey: ["app-provider-
+         +status", appId] });                                            
+      76 +    },                                                         
+      77 +  });                                                          
+      78 +                                                               
+      79    if (isLoading) return <div className="text-sm text-gray-500">
+          Loading...</div>;
+      80    if (!app) return <div className="text-sm text-red-500">App no
+          t found</div>;
+      81  
+
+⏺ Now add the Provider Credentials section to the JSX, before the Remove App
+  section:
+
+⏺ Update(web/src/pages/AppSettingsPage.tsx)
+  ⎿  Added 38 lines
+      142          </button>
+      143        </div>
+      144  
+      145 +      {/* Provider Credentials */}                            
+      146 +      {registry && (                                          
+      147 +        <div className="max-w-2xl space-y-4">                 
+      148 +          <div>                                               
+      149 +            <h2 className="text-lg font-semibold text-gray-900
+          +">Provider Credentials</h2>                                   
+      150 +            <p className="text-sm text-gray-500">             
+      151 +              Configure API keys for LLM and TTS providers. Ap
+          +p-level keys override personal and server defaults.           
+      152 +            </p>                                              
+      153 +          </div>                                              
+      154 +          <div className="grid grid-cols-1 gap-3 sm:grid-cols-
+          +2">                                                           
+      155 +            {Object.entries(registry.providers).map(([name, in
+          +fo]) => (                                                     
+      156 +              <ProviderConfigCard                             
+      157 +                key={name}                                    
+      158 +                provider={name}                               
+      159 +                category={info.category}                      
+      160 +                models={info.models}                          
+      161 +                status={providerStatus?.providers?.[name] ?? n
+          +ull}                                                          
+      162 +                onConfigure={setConfiguringProvider}          
+      163 +                onRemove={(p) => removeProviderMutation.mutate
+          +(p)}                                                          
+      164 +              />                                              
+      165 +            ))}                                               
+      166 +          </div>                                              
+      167 +        </div>                                                
+      168 +      )}                                                      
+      169 +                                                              
+      170 +      {configuringProvider && appId && (                      
+      171 +        <ProviderSecretModal                                  
+      172 +          provider={configuringProvider}                      
+      173 +          scope="app"                                         
+      174 +          scopeId={appId}                                     
+      175 +          onClose={() => setConfiguringProvider(null)}        
+      176 +          onSave={(data) =>                                   
+      177 +            saveProviderMutation.mutate({ provider: configurin
+          +gProvider, ...data })                                         
+      178 +          }                                                   
+      179 +          isSaving={saveProviderMutation.isPending}           
+      180 +        />                                                    
+      181 +      )}                                                      
+      182 +                                                              
+      183        <div className="max-w-lg rounded-lg border border-red-20
+           0 bg-white p-6">
+      184          <h2 className="text-lg font-semibold text-red-700">Rem
+           ove App</h2>
+      185          <p className="mt-1 text-sm text-gray-600">
+
+⏺ Now update the EvalRunner to support dynamic model lists:
+
+⏺ Update(web/src/components/eval/EvalRunner.tsx)
+  ⎿  Added 3 lines, removed 1 line
+      1  import { useState } from "react";
+      2  
+      3 -const POPULAR_MODELS = [                                        
+      3 +const DEFAULT_MODELS = [                                        
+      4    "gemini-2.0-flash",
+      5    "gpt-4o",
+      6    "claude-sonnet-4-5-20250929",
+     ...
+      12    onGenerateTests?: () => void;
+      13    isPending: boolean;
+      14    isGenerating?: boolean;
+      15 +  allowedModels?: string[] | null;                             
+      16 +  providerStatus?: Record<string, { configured: boolean }> | nu
+         +ll;                                                            
+      17  }
+      18  
+      19  export default function EvalRunner({ onRun, onGenerateTests, is
+          Pending, isGenerating }: Props) {
+
+⏺ Update(web/src/components/eval/EvalRunner.tsx)
+  ⎿  Added 3 lines, removed 2 lines
+      16    providerStatus?: Record<string, { configured: boolean }> | nu
+          ll;
+      17  }
+      18  
+      19 -export default function EvalRunner({ onRun, onGenerateTests, is
+         -Pending, isGenerating }: Props) {                              
+      20 -  const [selectedModels, setSelectedModels] = useState<string[]
+         ->(["gemini-2.0-flash", "gpt-4o"]);                             
+      19 +export default function EvalRunner({ onRun, onGenerateTests, is
+         +Pending, isGenerating, allowedModels, providerStatus }: Props) 
+         +{                                                              
+      20 +  const POPULAR_MODELS = allowedModels?.length ? allowedModels 
+         +: DEFAULT_MODELS;                                              
+      21 +  const [selectedModels, setSelectedModels] = useState<string[]
+         +>(POPULAR_MODELS.slice(0, 2));                                 
+      22    const [customModel, setCustomModel] = useState("");
+      23    const [showVars, setShowVars] = useState(false);
+      24    const [varsText, setVarsText] = useState("{}");
+
+⏺ Now update App.tsx to add the user settings route:
+
+⏺ Update(web/src/App.tsx)
+  ⎿  Added 1 line
+      10  import EvaluationPage from "./pages/EvaluationPage";
+      11  import AppSettingsPage from "./pages/AppSettingsPage";
+      12  import ApiKeysPage from "./pages/ApiKeysPage";
+      13 +import UserSettingsPage from "./pages/UserSettingsPage";       
+      14  import SyncStatusPage from "./pages/SyncStatusPage";
+      15  
+      16  function AuthenticatedLayout({ children }: { children: React.Re
+          actNode }) {
+
+⏺ Update(web/src/App.tsx)
+  ⎿  Added 8 lines
+      105          }
+      106        />
+      107        <Route
+      108 +        path="/settings/providers"                            
+      109 +        element={                                             
+      110 +          <AuthenticatedLayout>                               
+      111 +            <UserSettingsPage />                              
+      112 +          </AuthenticatedLayout>                              
+      113 +        }                                                     
+      114 +      />                                                      
+      115 +      <Route                                                  
+      116          path="/sync"
+      117          element={
+      118            <AuthenticatedLayout>
+
+⏺ Add the nav item to the Sidebar:
+
+⏺ Update(web/src/components/layout/Sidebar.tsx)
+  ⎿  Added 1 line
+       5    { path: "/", label: "Dashboard", icon: "grid" },
+       6    { path: "/sync", label: "Sync Status", icon: "refresh" },
+       7    { path: "/settings/api-keys", label: "API Keys", icon: "key" 
+          },
+       8 +  { path: "/settings/providers", label: "Provider Keys", icon: 
+         +"lock" },                                                      
+       9  ];
+      10  
+      11  export default function Sidebar() {
+
+⏺ Now let's create the test files:
+
+⏺ Write(tests/server/test_provider_registry.py)
+  ⎿  Wrote 72 lines to tests/server/test_provider_registry.py
+      1 """Tests for the provider registry."""
+      2 
+      3 from server.services.provider_registry import (
+      4     get_provider_for_model,
+      5     get_promptfoo_provider,
+      6     get_all_known_models,
+      7     get_registry_public,
+      8     PROVIDERS,
+      9 )
+     … +62 lines (ctrl+o to expand)
+
+⏺ Write(tests/server/test_credential_service.py)
+  ⎿  Wrote 179 lines to tests/server/test_credential_service.py
+      1 """Tests for the credential resolution service."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import json
+      6 from unittest.mock import patch
+      7 
+      8 import pytest
+      9 import pytest_asyncio
+     … +169 lines (ctrl+o to expand)
+
+⏺ Write(tests/server/test_provider_configs_queries.py)
+  ⎿  Wrote 113 lines to tests/server/test_provider_configs_queries.py
+      1 """Tests for provider_configs CRUD queries."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import pytest
+      6 
+      7 from server.db.queries import provider_configs as pc_queries
+      8 
+      9 from tests.conftest import APP_ID, USER_ID
+     … +103 lines (ctrl+o to expand)
+
+⏺ Write(tests/server/test_admin_providers.py)
+  ⎿  Wrote 137 lines to tests/server/test_admin_providers.py
+      1 """API integration tests for provider credential endpoints."""
+      2 
+      3 from __future__ import annotations
+      4 
+      5 import json
+      6 from unittest.mock import patch
+      7 
+      8 import pytest
+      9 import pytest_asyncio
+     … +127 lines (ctrl+o to expand)
+
+⏺ Now let's create the spec document and run the tests:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Write(~/src/futureself/dwight_docs/prompt_mgmt/MODEL_ABSTRACTION.md)
+  ⎿  Wrote 135 lines to ../dwight_docs/prompt_mgmt/MODEL_ABSTRACTION.md
+      1 # Model Abstraction & Provider Credential Management
+      2 
+      3 ## Overview
+      4 
+      5 Promptdis supports per-application and per-user provider credenti
+        als for external services (LLM evaluation, TTS synthesis). This r
+        eplaces the previous global-only configuration and enables multi-
+        tenant usage where different apps use different API keys.
+      6 
+      7 ## Provider Registry
+      8 
+      9 Known providers are defined in `server/services/provider_registry
+        .py`:
+     … +125 lines (ctrl+o to expand)
+
+⏺ Now let's run the tests:
+
+⏺ Bash(python -m pytest tests/server/test_provider_registry.py
+      tests/server/test_provider_configs_queries.py
+      tests/server/test_credential_service.py -v --tb=short 2>&1…)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.12.7, pytest-9.0.2, pluggy-1.6.0 -- /Users
+     … +77 lines (ctrl+o to expand)
+
+⏺ Two failures to fix. The settings is imported lazily in credential_service.py,
+   and the secret preservation logic has a bug. Let me fix both:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ The issue is that _row_to_dict pops secrets_encrypted and stores raw as
+  _secrets_encrypted_raw, but the check looks for secrets_encrypted key. The
+  _row_to_dict removes secrets_encrypted but the check should use
+  _secrets_encrypted_raw:
+
+⏺ Update(server/db/queries/provider_configs.py)
+  ⎿  Added 1 line, removed 1 line
+      63      secrets_enc = None
+      64      if secrets:
+      65          secrets_enc = encrypt(json.dumps(secrets))
+      66 -    elif existing and existing.get("secrets_encrypted"):       
+      66 +    elif existing and existing.get("_secrets_encrypted_raw"):  
+      67          # Preserve existing secrets if none provided
+      68          secrets_enc = existing["_secrets_encrypted_raw"]
+      69  
+
+⏺ Now fix the elevenlabs settings test — settings is imported inside the
+  function body, so we need to patch it at server.config.settings:
+
+⏺ Update(tests/server/test_credential_service.py)
+  ⎿  Added 1 line, removed 1 line
+      106      @pytest.mark.asyncio
+      107      async def test_resolve_elevenlabs_settings_fallback(self, 
+           db):
+      108          """ElevenLabs falls back to settings.elevenlabs_api_ke
+           y."""
+      109 -        with patch("server.services.credential_service.setting
+          -s") as mock_settings:                                         
+      109 +        with patch("server.config.settings") as mock_settings:
+      110              mock_settings.elevenlabs_api_key = "el-global-key"
+      111              cred = await resolve_credential(db, "elevenlabs", 
+           app_id=APP_ID)
+      112          assert cred is not None
+
+⏺ Bash(python -m pytest tests/server/test_provider_registry.py
+      tests/server/test_provider_configs_queries.py
+      tests/server/test_credential_service.py -v --tb=short 2>&1…)
+  ⎿  tests/server/test_provider_configs_queries.py::TestProviderConfigsCRUD
+     ::test_upsert_preserves_secrets_when_not_provided PASSED [ 46%]
+     tests/server/test_provider_configs_queries.py::TestProviderConfigsCRUD
+     … +27 lines (ctrl+o to expand)
+
+⏺ All 32 unit tests pass. Now run the API integration tests:
+
+⏺ Bash(python -m pytest tests/server/test_admin_providers.py -v --tb=short 2>&1
+      | tail -30)
+  ⎿  E   assert 401 == 200
+     E    +  where 401 = <Response [401 Unauthorized]>.status_code
+     ___________________ TestAppProviders.test_list_app_providers _________
+     … +24 lines (ctrl+o to expand)
+
+⏺ The _require_user patch isn't working because it needs to be patched as a
+  method on the module, not as a returned function. Let me check how existing
+  admin tests do auth:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ I see — the tests use admin_client with a proper session cookie. Let me
+  rewrite the admin provider tests to use the same pattern:
+
+⏺ Write(tests/server/test_admin_providers.py)
+  ⎿  Added 94 lines, removed 85 lines
+       3  from __future__ import annotations
+       4  
+       5  import json
+       6 -from unittest.mock import patch                                
+       6  
+       7  import pytest
+       8  import pytest_asyncio
+       9 +from httpx import ASGITransport, AsyncClient                   
+      10  
+      11 -from tests.conftest import APP_ID, USER_ID                     
+      11 +from tests.conftest import APP_ID, USER_ID, ORG_ID             
+      12  
+      13  
+      14 -def _auth_headers():                                           
+      15 -    """Return headers that simulate an authenticated session.""
+         -"                                                              
+      16 -    return {"Cookie": "session=test-session-id"}               
+      14 +async def _create_session(db, user_id: str = USER_ID) -> str:  
+      15 +    import secrets                                             
+      16 +    sid = secrets.token_hex(24)                                
+      17 +    await db.execute(                                          
+      18 +        "INSERT INTO sessions (id, user_id, expires_at) VALUES 
+         +(?, ?, datetime('now', '+1 day'))",                            
+      19 +        (sid, user_id),                                        
+      20 +    )                                                          
+      21 +    await db.commit()                                          
+      22 +    return sid                                                 
+      23  
+      24  
+      19 -def _mock_user():                                              
+      20 -    """Return a mock user dict."""                             
+      21 -    return {"id": USER_ID, "github_id": 12345, "github_login": 
+         -"testuser", "display_name": "Test User"}                       
+      25 +@pytest_asyncio.fixture                                        
+      26 +async def admin_client(app, db):                               
+      27 +    """Async HTTP client with a valid session cookie."""       
+      28 +    sid = await _create_session(db)                            
+      29 +    try:                                                       
+      30 +        await db.execute(                                      
+      31 +            "INSERT INTO org_memberships (user_id, org_id, role
+         +) VALUES (?, ?, ?)",                                           
+      32 +            (USER_ID, ORG_ID, "owner"),                        
+      33 +        )                                                      
+      34 +        await db.commit()                                      
+      35 +    except Exception:                                          
+      36 +        pass                                                   
+      37 +    transport = ASGITransport(app=app)                         
+      38 +    async with AsyncClient(                                    
+      39 +        transport=transport,                                   
+      40 +        base_url="http://test",                                
+      41 +        cookies={"promptdis_session": sid},                    
+      42 +    ) as ac:                                                   
+      43 +        yield ac                                               
+      44  
+      45  
+      46  class TestProviderRegistry:
+      47      @pytest.mark.asyncio
+      26 -    async def test_get_registry(self, client):                 
+      27 -        with patch("server.api.admin._require_user", return_val
+         -ue=_mock_user()):                                              
+      28 -            resp = await client.get("/api/v1/admin/providers/re
+         -gistry")                                                       
+      48 +    async def test_get_registry(self, admin_client):           
+      49 +        resp = await admin_client.get("/api/v1/admin/providers/
+         +registry")                                                     
+      50          assert resp.status_code == 200
+      51          data = resp.json()
+      52          assert "providers" in data
+     ...
+       54          assert "anthropic" in data["providers"]
+       55          assert "google" in data["providers"]
+       56          assert "elevenlabs" in data["providers"]
+       36 -        # No secret_keys exposed                              
+       57          for info in data["providers"].values():
+       58              assert "secret_keys" not in info
+       59  
+       60  
+       61  class TestAppProviders:
+       62      @pytest.mark.asyncio
+       43 -    async def test_put_get_delete_lifecycle(self, client):    
+       44 -        user = _mock_user()                                   
+       45 -        with patch("server.api.admin._require_user", return_va
+          -lue=user):                                                    
+       46 -            # PUT                                             
+       47 -            resp = await client.put(                          
+       48 -                f"/api/v1/admin/apps/{APP_ID}/providers/openai
+          -",                                                            
+       49 -                json={"secrets": {"api_key": "sk-test-put"}}, 
+       50 -            )                                                 
+       51 -            assert resp.status_code == 200                    
+       52 -            assert resp.json()["ok"] is True                  
+       63 +    async def test_put_get_delete_lifecycle(self, admin_client
+          +):                                                            
+       64 +        # PUT                                                 
+       65 +        resp = await admin_client.put(                        
+       66 +            f"/api/v1/admin/apps/{APP_ID}/providers/openai",  
+       67 +            json={"secrets": {"api_key": "sk-test-put"}},     
+       68 +        )                                                     
+       69 +        assert resp.status_code == 200                        
+       70 +        assert resp.json()["ok"] is True                      
+       71  
+       54 -            # GET                                             
+       55 -            resp = await client.get(f"/api/v1/admin/apps/{APP_
+          -ID}/providers/openai")                                        
+       56 -            assert resp.status_code == 200                    
+       57 -            data = resp.json()                                
+       58 -            assert data["secrets"]["has_api_key"] is True     
+       59 -            # API key should be masked                        
+       60 -            assert "sk-test-put" not in json.dumps(data["secre
+          -ts"])                                                         
+       72 +        # GET                                                 
+       73 +        resp = await admin_client.get(f"/api/v1/admin/apps/{AP
+          +P_ID}/providers/openai")                                      
+       74 +        assert resp.status_code == 200                        
+       75 +        data = resp.json()                                    
+       76 +        assert data["secrets"]["has_api_key"] is True         
+       77 +        assert "sk-test-put" not in json.dumps(data["secrets"]
+          +)                                                             
+       78  
+       62 -            # DELETE                                          
+       63 -            resp = await client.delete(f"/api/v1/admin/apps/{A
+          -PP_ID}/providers/openai")                                     
+       64 -            assert resp.status_code == 200                    
+       79 +        # DELETE                                              
+       80 +        resp = await admin_client.delete(f"/api/v1/admin/apps/
+          +{APP_ID}/providers/openai")                                   
+       81 +        assert resp.status_code == 200                        
+       82  
+       66 -            # GET after delete → 404                          
+       67 -            resp = await client.get(f"/api/v1/admin/apps/{APP_
+          -ID}/providers/openai")                                        
+       68 -            assert resp.status_code == 404                    
+       83 +        # GET after delete -> 404                             
+       84 +        resp = await admin_client.get(f"/api/v1/admin/apps/{AP
+          +P_ID}/providers/openai")                                      
+       85 +        assert resp.status_code == 404                        
+       86  
+       87      @pytest.mark.asyncio
+       71 -    async def test_list_app_providers(self, client):          
+       72 -        user = _mock_user()                                   
+       73 -        with patch("server.api.admin._require_user", return_va
+          -lue=user):                                                    
+       74 -            await client.put(                                 
+       75 -                f"/api/v1/admin/apps/{APP_ID}/providers/openai
+          -",                                                            
+       76 -                json={"secrets": {"api_key": "sk-1"}},        
+       77 -            )                                                 
+       78 -            await client.put(                                 
+       79 -                f"/api/v1/admin/apps/{APP_ID}/providers/anthro
+          -pic",                                                         
+       80 -                json={"secrets": {"api_key": "sk-2"}},        
+       81 -            )                                                 
+       82 -            resp = await client.get(f"/api/v1/admin/apps/{APP_
+          -ID}/providers")                                               
+       83 -            assert resp.status_code == 200                    
+       84 -            items = resp.json()["items"]                      
+       85 -            assert len(items) >= 2                            
+       88 +    async def test_list_app_providers(self, admin_client):    
+       89 +        await admin_client.put(                               
+       90 +            f"/api/v1/admin/apps/{APP_ID}/providers/openai",  
+       91 +            json={"secrets": {"api_key": "sk-1"}},            
+       92 +        )                                                     
+       93 +        await admin_client.put(                               
+       94 +            f"/api/v1/admin/apps/{APP_ID}/providers/anthropic"
+          +,                                                             
+       95 +            json={"secrets": {"api_key": "sk-2"}},            
+       96 +        )                                                     
+       97 +        resp = await admin_client.get(f"/api/v1/admin/apps/{AP
+          +P_ID}/providers")                                             
+       98 +        assert resp.status_code == 200                        
+       99 +        items = resp.json()["items"]                          
+      100 +        assert len(items) >= 2                                
+      101  
+      102      @pytest.mark.asyncio
+       88 -    async def test_provider_status(self, client):             
+       89 -        user = _mock_user()                                   
+       90 -        with patch("server.api.admin._require_user", return_va
+          -lue=user):                                                    
+       91 -            await client.put(                                 
+       92 -                f"/api/v1/admin/apps/{APP_ID}/providers/openai
+          -",                                                            
+       93 -                json={"secrets": {"api_key": "sk-status-test"}
+          -},                                                            
+       94 -            )                                                 
+       95 -            resp = await client.get(f"/api/v1/admin/apps/{APP_
+          -ID}/providers/status")                                        
+       96 -            assert resp.status_code == 200                    
+       97 -            providers = resp.json()["providers"]              
+       98 -            assert providers["openai"]["configured"] is True  
+       99 -            assert providers["openai"]["source"] == "app"     
+      103 +    async def test_provider_status(self, admin_client):       
+      104 +        await admin_client.put(                               
+      105 +            f"/api/v1/admin/apps/{APP_ID}/providers/openai",  
+      106 +            json={"secrets": {"api_key": "sk-status-test"}},  
+      107 +        )                                                     
+      108 +        resp = await admin_client.get(f"/api/v1/admin/apps/{AP
+          +P_ID}/providers/status")                                      
+      109 +        assert resp.status_code == 200                        
+      110 +        providers = resp.json()["providers"]                  
+      111 +        assert providers["openai"]["configured"] is True      
+      112 +        assert providers["openai"]["source"] == "app"         
+      113  
+      114  
+      115  class TestUserProviders:
+      116      @pytest.mark.asyncio
+      104 -    async def test_put_get_delete_user_provider(self, client):
+      105 -        user = _mock_user()                                   
+      106 -        with patch("server.api.admin._require_user", return_va
+          -lue=user):                                                    
+      107 -            resp = await client.put(                          
+      108 -                "/api/v1/admin/user/providers/anthropic",     
+      109 -                json={"secrets": {"api_key": "sk-user-anthro"}
+          -},                                                            
+      110 -            )                                                 
+      111 -            assert resp.status_code == 200                    
+      117 +    async def test_put_get_delete_user_provider(self, admin_cl
+          +ient):                                                        
+      118 +        resp = await admin_client.put(                        
+      119 +            "/api/v1/admin/user/providers/anthropic",         
+      120 +            json={"secrets": {"api_key": "sk-user-anthro"}},  
+      121 +        )                                                     
+      122 +        assert resp.status_code == 200                        
+      123  
+      113 -            resp = await client.get("/api/v1/admin/user/provid
+          -ers/anthropic")                                               
+      114 -            assert resp.status_code == 200                    
+      115 -            assert resp.json()["secrets"]["has_api_key"] is Tr
+          -ue                                                            
+      124 +        resp = await admin_client.get("/api/v1/admin/user/prov
+          +iders/anthropic")                                             
+      125 +        assert resp.status_code == 200                        
+      126 +        assert resp.json()["secrets"]["has_api_key"] is True  
+      127  
+      117 -            resp = await client.delete("/api/v1/admin/user/pro
+          -viders/anthropic")                                            
+      118 -            assert resp.status_code == 200                    
+      128 +        resp = await admin_client.delete("/api/v1/admin/user/p
+          +roviders/anthropic")                                          
+      129 +        assert resp.status_code == 200                        
+      130  
+      131      @pytest.mark.asyncio
+      121 -    async def test_list_user_providers(self, client):         
+      122 -        user = _mock_user()                                   
+      123 -        with patch("server.api.admin._require_user", return_va
+          -lue=user):                                                    
+      124 -            await client.put(                                 
+      125 -                "/api/v1/admin/user/providers/google",        
+      126 -                json={"secrets": {"api_key": "google-key"}},  
+      127 -            )                                                 
+      128 -            resp = await client.get("/api/v1/admin/user/provid
+          -ers")                                                         
+      129 -            assert resp.status_code == 200                    
+      130 -            assert len(resp.json()["items"]) >= 1             
+      132 +    async def test_list_user_providers(self, admin_client):   
+      133 +        await admin_client.put(                               
+      134 +            "/api/v1/admin/user/providers/google",            
+      135 +            json={"secrets": {"api_key": "google-key"}},      
+      136 +        )                                                     
+      137 +        resp = await admin_client.get("/api/v1/admin/user/prov
+          +iders")                                                       
+      138 +        assert resp.status_code == 200                        
+      139 +        assert len(resp.json()["items"]) >= 1                 
+      140  
+      141  
+      142  class TestAuthRequired:
+
+⏺ Bash(python -m pytest tests/server/test_admin_providers.py -v --tb=short 2>&1
+      | tail -25)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.12.7, pytest-9.0.2, pluggy-1.6.0 -- /Users
+     … +16 lines (ctrl+o to expand)
+
+⏺ All 7 API integration tests pass. Now let's run the existing test suite to
+  make sure nothing's broken:
+
+⏺ Bash(python -m pytest tests/ -v --tb=short 2>&1 | tail -60)
+  ⎿  tests/server/test_render_service.py::test_no_variables_passthrough PAS
+     SED [ 81%]
+     tests/server/test_render_service.py::test_filter_upper PASSED
+     … +74 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+⏺ All 292 tests pass (including the 39 new ones). No regressions.
+
+  Let me do a quick check on the frontend to make sure TypeScript compiles:
+
+⏺ Bash(cd /Users/lorenwinzeler/src/futureself/prompt-mgmt/web && npx tsc
+      --noEmit 2>&1 | head -30)
+  ⎿  src/components/eval/EvalRunner.tsx(19,102): error TS6133: 'providerSta
+     tus' is declared but its value is never read.
+     src/components/settings/ProviderConfigCard.tsx(1,1): error TS6133: 'us
+     … +3 lines (ctrl+o to expand)
+
+⏺ Minor unused variable warnings. Let me fix them:
+
+⏺ Update(web/src/components/settings/ProviderConfigCard.tsx)
+  ⎿  Removed 1 line
+      1 -import { useState } from "react";                               
+      1  
+      2  export interface ProviderStatus {
+      3    configured: boolean;
+
+⏺ Update(web/src/components/settings/ProviderSecretModal.tsx)
+  ⎿  Removed 1 line
+      3  interface Props {
+      4    provider: string;
+      5    scope: "app" | "user";
+      6 -  scopeId: string;                                              
+      6    onClose: () => void;
+      7    onSave: (data: { secrets: Record<string, string>; config?: Rec
+         ord<string, string>; environment?: string }) => void;
+      8    isSaving: boolean;
+
+⏺ Update(web/src/components/settings/ProviderSecretModal.tsx)
+  ⎿  Removed 1 line
+      18  export default function ProviderSecretModal({
+      19    provider,
+      20    scope,
+      21 -  scopeId,                                                     
+      21    onClose,
+      22    onSave,
+      23    isSaving,
+
+⏺ Now fix the providerStatus unused variable in EvalRunner — let me add a
+  warning badge for unconfigured providers:
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ I need to use providerStatus to show a warning. Let me add a helper and use it
+   in the chip rendering:
+
+⏺ Update(web/src/components/eval/EvalRunner.tsx)
+  ⎿  Added 11 lines
+      37      }
+      38    };
+      39  
+      40 +  const isModelConfigured = (model: string): boolean => {      
+      41 +    if (!providerStatus) return true; // No status = assume con
+         +figured                                                        
+      42 +    const lower = model.toLowerCase();                         
+      43 +    let provider: string | null = null;                        
+      44 +    if (lower.includes("gpt") || lower.includes("openai") || lo
+         +wer.includes("o1") || lower.includes("o3")) provider = "openai"
+         +;                                                              
+      45 +    else if (lower.includes("claude") || lower.includes("anthro
+         +pic")) provider = "anthropic";                                 
+      46 +    else if (lower.includes("gemini") || lower.includes("google
+         +")) provider = "google";                                       
+      47 +    if (!provider) return true;                                
+      48 +    return providerStatus[provider]?.configured ?? false;      
+      49 +  };                                                           
+      50 +                                                               
+      51    const handleRun = () => {
+      52      let variables: Record<string, string> | undefined;
+      53      if (showVars && varsText.trim() !== "{}") {
+
+⏺ Update(web/src/components/eval/EvalRunner.tsx)
+  ⎿  Added 3 lines
+      90                }`}
+      91              >
+      92                {model}
+      93 +              {selectedModels.includes(model) && !isModelConfig
+         +ured(model) && (                                               
+      94 +                <span className="ml-1 text-yellow-400" title="P
+         +rovider not configured">!</span>                               
+      95 +              )}                                               
+      96              </button>
+      97            ))}
+      98            {selectedModels
+
+⏺ Also update callers to remove scopeId prop:
+
+⏺ Update(web/src/pages/AppSettingsPage.tsx)
+  ⎿  Removed 1 line
+      171          <ProviderSecretModal
+      172            provider={configuringProvider}
+      173            scope="app"
+      174 -          scopeId={appId}                                     
+      174            onClose={() => setConfiguringProvider(null)}
+      175            onSave={(data) =>
+      176              saveProviderMutation.mutate({ provider: configurin
+           gProvider, ...data })
+
+⏺ Update(web/src/pages/UserSettingsPage.tsx)
+  ⎿  Removed 1 line
+      100          <ProviderSecretModal
+      101            provider={configuring}
+      102            scope="user"
+      103 -          scopeId=""                                          
+      103            onClose={() => setConfiguring(null)}
+      104            onSave={(data) =>
+      105              saveMutation.mutate({ provider: configuring, ...da
+           ta })
+
+⏺ Bash(npx tsc --noEmit 2>&1)
+  ⎿  (No output)
+
+⏺ TypeScript compiles clean. Let me run the full test suite one more time to
+  confirm everything is green:
+
+⏺ Bash(python -m pytest tests/ --tb=short 2>&1 | tail -5)
+  ⎿  plugins: anyio-4.12.1, asyncio-1.3.0
+     asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_sco
+     pe=None, asyncio_default_test_loop_scope=function
+     … +4 lines (ctrl+o to expand)
+
+⏺ Bash(cd /Users/lorenwinzeler/src/futureself/prompt-mgmt && python -m pytest
+      tests/ --tb=short 2>&1 | tail -5)
+  ⎿    Enable tracemalloc to get traceback where the object was allocated.
+       See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#r
+     esource-warnings for more info.
+     … +5 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+⏺ 292 tests pass, 0 failures. Here's a summary of everything implemented:
+
+  ---
+  Implementation Summary
+
+  Files Created (12)
+
+  ┌──────────────────────────────────────────────────┬──────────────────────┐
+  │                       File                       │       Purpose        │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │                                                  │ New provider_configs │
+  │ server/db/migrations/003_provider_configs.sql    │  table +             │
+  │                                                  │ applications column  │
+  │                                                  │ additions            │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │                                                  │ Known providers,     │
+  │ server/services/provider_registry.py             │ model→provider       │
+  │                                                  │ mapping, promptfoo   │
+  │                                                  │ prefixes             │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │                                                  │ 5-tier credential    │
+  │ server/services/credential_service.py            │ resolution cascade   │
+  │                                                  │ (app→user→env var)   │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │                                                  │ CRUD queries with en │
+  │ server/db/queries/provider_configs.py            │ cryption/decryption  │
+  │                                                  │ + secret masking     │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │ web/src/components/settings/ProviderConfigCard.t │ Provider card with   │
+  │ sx                                               │ status indicator     │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │ web/src/components/settings/ProviderSecretModal. │ Secret entry modal   │
+  │ tsx                                              │ with environment     │
+  │                                                  │ selector             │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │                                                  │ Personal API keys    │
+  │ web/src/pages/UserSettingsPage.tsx               │ page at              │
+  │                                                  │ /settings/providers  │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │ ~/dwight_docs/prompt_mgmt/MODEL_ABSTRACTION.md   │ Spec document        │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │ tests/server/test_provider_registry.py           │ 12 registry tests    │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │ tests/server/test_credential_service.py          │ 11 credential        │
+  │                                                  │ resolution tests     │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │ tests/server/test_provider_configs_queries.py    │ 8 CRUD query tests   │
+  ├──────────────────────────────────────────────────┼──────────────────────┤
+  │ tests/server/test_admin_providers.py             │ 7 API integration    │
+  │                                                  │ tests                │
+  └──────────────────────────────────────────────────┴──────────────────────┘
+
+  Files Modified (9)
+
+  ┌────────────────────────────────────────┬─────────────────────────────────┐
+  │                  File                  │             Change              │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ server/config.py                       │ Deprecation comment on          │
+  │                                        │ elevenlabs_* fields             │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │                                        │ Uses provider_registry, accepts │
+  │ server/services/eval_service.py        │  env_vars param, passes to      │
+  │                                        │ subprocess                      │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ server/services/tts_service.py         │ Accepts credentials param,      │
+  │                                        │ falls back to global            │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ server/services/promptpex_service.py   │ Accepts optional api_key param  │
+  │                                        │ for Google                      │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │                                        │ 12 new provider CRUD endpoints, │
+  │ server/api/admin.py                    │  TTS preview resolves per-app   │
+  │                                        │ creds                           │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ server/api/eval.py                     │ Resolves credentials before     │
+  │                                        │ eval runs + test generation     │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ web/src/pages/AppSettingsPage.tsx      │ Provider Credentials section    │
+  │                                        │ with cards + modal              │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ web/src/components/eval/EvalRunner.tsx │ Dynamic model list,             │
+  │                                        │ unconfigured provider warning   │
+  ├────────────────────────────────────────┼─────────────────────────────────┤
+  │ web/src/App.tsx + Sidebar.tsx          │ /settings/providers route + nav │
+  │                                        │  item                           │
+  └────────────────────────────────────────┴─────────────────────────────────┘
+
+  Key Design Decisions
+
+  - Zero breaking changes: Global .env keys remain as lowest-priority fallback
+  - Fernet encryption at rest: Reuses existing server/utils/crypto.py
+  - Secrets never reach GitHub: Stored only in SQLite
+  - API responses mask secrets: Show only sk-1...cdef + has_api_key: true
+  - Environment-scoped keys: Same provider can have different keys per
+  dev/staging/prod
+
+✻ Churned for 9m 57s

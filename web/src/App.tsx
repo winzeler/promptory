@@ -10,6 +10,7 @@ import PromptPreviewPage from "./pages/PromptPreviewPage";
 import EvaluationPage from "./pages/EvaluationPage";
 import AppSettingsPage from "./pages/AppSettingsPage";
 import ApiKeysPage from "./pages/ApiKeysPage";
+import UserSettingsPage from "./pages/UserSettingsPage";
 import SyncStatusPage from "./pages/SyncStatusPage";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -100,6 +101,14 @@ export default function App() {
         element={
           <AuthenticatedLayout>
             <ApiKeysPage />
+          </AuthenticatedLayout>
+        }
+      />
+      <Route
+        path="/settings/providers"
+        element={
+          <AuthenticatedLayout>
+            <UserSettingsPage />
           </AuthenticatedLayout>
         }
       />

@@ -25,16 +25,16 @@ Renaming the app from "Promptory" to "Promptdis" across the entire codebase. The
 ## Execution Order
 
 ### Step 0: Prep
-- Clean `sdk/src/promptory/__pycache__/`
+- Clean `sdk-py/src/promptory/__pycache__/`
 - Verify clean git state
 
 ### Step 1: Directory Rename
 ```bash
-git mv sdk/src/promptory sdk/src/promptdis
+git mv sdk-py/src/promptory sdk-py/src/promptdis
 ```
 Do this **first** so git tracks it as a rename with identical content.
 
-### Step 2: Python SDK Source (`sdk/src/promptdis/`)
+### Step 2: Python SDK Source (`sdk-py/src/promptdis/`)
 Update 6 files — change all `from promptory.` → `from promptdis.`, `PromptoryError` → `PromptdisError`, docstrings:
 - `__init__.py`
 - `exceptions.py`
@@ -44,12 +44,12 @@ Update 6 files — change all `from promptory.` → `from promptdis.`, `Promptor
 - `cache.py` (only if it has references)
 
 ### Step 3: Python SDK Config
-- `sdk/pyproject.toml` — name, description, URLs, packages path
+- `sdk-py/pyproject.toml` — name, description, URLs, packages path
 
 ### Step 4: Python SDK Tests
-- `tests/sdk/test_client.py` — imports, class names, test method names
-- `tests/sdk/test_cache.py` — import
-- `tests/sdk/test_models.py` — import
+- `tests/sdk-py/test_client.py` — imports, class names, test method names
+- `tests/sdk-py/test_cache.py` — import
+- `tests/sdk-py/test_models.py` — import
 
 ### Step 5: Server Source
 - `server/main.py` — docstring, log messages, FastAPI title, service identifier
@@ -113,7 +113,7 @@ Update 6 files — change all `from promptory.` → `from promptdis.`, `Promptor
 ### Step 14: Documentation
 - `CLAUDE.md` — title, description, SDK reference, file path
 - `README.md` — ~20 changes (title, URLs, install commands, imports, db path)
-- `sdk/README.md` — package name, imports, URLs
+- `sdk-py/README.md` — package name, imports, URLs
 - `sdk-ts/README.md` — package name, imports, URLs
 - `sdk-go/README.md` — module path, imports, URLs
 
@@ -154,5 +154,5 @@ cd sdk-go && go test ./...
 cd sdk-ts && npx tsc --noEmit
 
 # 6. Quick Python import check
-python -c "import sys; sys.path.insert(0, 'sdk/src'); from promptdis import PromptClient, PromptdisError"
+python -c "import sys; sys.path.insert(0, 'sdk-py/src'); from promptdis import PromptClient, PromptdisError"
 ```

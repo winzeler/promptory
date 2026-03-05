@@ -182,7 +182,7 @@ rendered = prompt.render(variables={
 })
 ```
 
-See [`sdk/README.md`](sdk/README.md) for full documentation.
+See [`sdk-py/README.md`](sdk-py/README.md) for full documentation.
 
 ### TypeScript
 
@@ -354,14 +354,14 @@ prompt-mgmt/
 │       ├── hooks/           # React Query hooks
 │       ├── api/             # API client functions
 │       └── lib/             # Zod schemas, constants
-├── sdk/                     # Python SDK (pip install promptdis)
+├── sdk-py/                  # Python SDK (pip install promptdis)
 │   └── src/promptdis/       # Client, async client, cache, models, exceptions
 ├── sdk-ts/                  # TypeScript SDK (@promptdis/client)
 │   └── src/                 # Client, cache, models, errors
 ├── tests/                   # Python test suite
 │   ├── conftest.py          # Shared fixtures (in-memory DB, seed data)
 │   ├── server/              # Backend tests (18 files)
-│   └── sdk/                 # SDK tests (3 files)
+│   └── sdk-py/              # SDK tests (3 files)
 ├── .github/workflows/       # CI, prompt evals, PyPI publish
 ├── pyproject.toml           # Server dependencies
 ├── docker-compose.yml       # Dev environment
