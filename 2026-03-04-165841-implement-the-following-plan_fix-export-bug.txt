@@ -1,0 +1,77 @@
+
+ ▐▛███▜▌   Claude Code v2.1.69
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Fix: Export button not including prompt body after YAML                      │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ The Export button downloads a .prompty file that contains the YAML           │
+│ front-matter but is missing the prompt body text after it. Users get an      │
+│ empty body in their exported files.                                          │
+│                                                                              │
+│ Root Cause                                                                   │
+│                                                                              │
+│ In server/api/admin.py:626, the export endpoint extracts the body from       │
+│ fm.pop("_body", "") — looking for _body inside the front_matter JSON column. │
+│  However, when prompts are synced from GitHub (via sync_service.py), the     │
+│ body is stored in a separate body column in SQLite, NOT embedded as _body    │
+│ inside the front_matter JSON. So fm.pop("_body", "") always returns "".      │
+│                                                                              │
+│ Other endpoints handle this correctly. For example, server/api/eval.py:42    │
+│ does:                                                                        │
+│ prompt_body = prompt.get("body") or fm.get("_body", "")                      │
+│ This checks the body column first, then falls back to _body in front_matter. │
+│                                                                              │
+│ Fix                                                                          │
+│                                                                              │
+│ File: server/api/admin.py — line 626                                         │
+│                                                                              │
+│ Change:                                                                      │
+│ body = fm.pop("_body", "")                                                   │
+│                                                                              │
+│ To:                                                                          │
+│ body = prompt.get("body") or fm.pop("_body", "")                             │
+│                                                                              │
+│ This checks the body column from the SQLite row first (where sync_service    │
+│ stores it), then falls back to _body in front_matter for backwards           │
+│ compatibility with any legacy data.                                          │
+│                                                                              │
+│ Verification                                                                 │
+│                                                                              │
+│ 1. Run existing tests: pytest tests/server/test_prompty_converter.py         │
+│ 2. Run admin API tests: pytest tests/server/test_admin_api.py                │
+│ 3. Manual test: Export a prompt via the UI and verify the body appears after │
+│  the YAML front-matter in the downloaded .prompty file                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(server/api/admin.py)
+  ⎿  Added 1 line, removed 1 line
+      623          raise HTTPException(status_code=404, detail={"error": 
+           {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}})
+      624  
+      625      fm = json.loads(prompt.get("front_matter", "{}"))
+      626 -    body = fm.pop("_body", "")                                
+      626 +    body = prompt.get("body") or fm.pop("_body", "")          
+      627  
+      628      # Ensure name is in front-matter for export
+      629      if not fm.get("name"):
+
+⏺ Now let me run the tests to verify.
+
+⏺ Bash(python -m pytest tests/server/test_prompty_converter.py
+      tests/server/test_admin_api.py -v 2>&1 | tail -30)
+  ⎿  tests/server/test_admin_api.py::test_force_sync_app_not_found PASSED
+        [ 53%]
+     tests/server/test_admin_api.py::test_create_prompt PASSED
+     … +31 lines (ctrl+o to expand)
+
+⏺ All 58 tests pass. The fix is a one-line change at server/api/admin.py:626 —
+  it now checks the body column from the SQLite row first (where sync_service
+  stores it), falling back to _body in front_matter for backwards compatibility.

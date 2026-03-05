@@ -623,7 +623,7 @@ async def export_prompty(prompt_id: str, request: Request):
         raise HTTPException(status_code=404, detail={"error": {"code": "PROMPT_NOT_FOUND", "message": "Prompt not found"}})
 
     fm = json.loads(prompt.get("front_matter", "{}"))
-    body = fm.pop("_body", "")
+    body = prompt.get("body") or fm.pop("_body", "")
 
     # Ensure name is in front-matter for export
     if not fm.get("name"):
