@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 import tempfile
 import time
@@ -38,16 +39,9 @@ def generate_promptfoo_config(
     variables = variables or {}
 
     # Map model strings to promptfoo provider format
-    providers = []
-    for model in models:
-        if "gemini" in model.lower() or "google" in model.lower():
-            providers.append(f"google:{model}")
-        elif "gpt" in model.lower() or "openai" in model.lower():
-            providers.append(f"openai:{model}")
-        elif "claude" in model.lower() or "anthropic" in model.lower():
-            providers.append(f"anthropic:{model}")
-        else:
-            providers.append(model)
+    from server.services.provider_registry import get_promptfoo_provider
+
+    providers = [get_promptfoo_provider(model) for model in models]
 
     # Build assertions from eval config
     assertions = []
@@ -82,6 +76,7 @@ async def run_evaluation(
     model: str,
     eval_config: dict | None = None,
     variables: dict | None = None,
+    env_vars: dict | None = None,
 ) -> dict:
     """Run a promptfoo evaluation for a single model.
 
@@ -117,6 +112,9 @@ async def run_evaluation(
         config_path.write_text(yaml.dump(config, default_flow_style=False))
 
         try:
+            # Merge resolved provider credentials into subprocess environment
+            subprocess_env = {**os.environ, **(env_vars or {})}
+
             proc = await asyncio.create_subprocess_exec(
                 promptfoo_bin, "eval",
                 "--config", str(config_path),
@@ -125,6 +123,7 @@ async def run_evaluation(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=tmpdir,
+                env=subprocess_env,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
 

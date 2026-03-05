@@ -44,7 +44,7 @@ cd web && npm install && npm run dev
 - `server/api/admin.py` — Admin CRUD API
 - `server/services/github_service.py` — PyGithub wrapper
 - `server/services/sync_service.py` — GitHub → SQLite sync
-- `sdk/src/promptdis/client.py` — Python SDK client
+- `sdk-py/src/promptdis/client.py` — Python SDK client
 
 ## Spec
 
