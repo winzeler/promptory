@@ -1,38 +1,113 @@
-# Promptdis
+<p align="center">
+  <img src="docs/assets/logo.svg" width="120" alt="Promptdis logo" />
+</p>
 
-Git-native LLM prompt management platform. Store prompts as Markdown files in GitHub, edit them through a web UI, fetch them at runtime via SDK.
+<h1 align="center">Promptdis</h1>
+<p align="center">Git-native LLM prompt management platform</p>
 
-## What It Does
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://github.com/futureself-app/promptdis/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/futureself-app/promptdis/ci.yml?branch=main&label=CI" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/python-3.11+-3776ab.svg?logo=python&logoColor=white" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/node-18+-339933.svg?logo=node.js&logoColor=white" alt="Node 18+" />
+  <img src="https://img.shields.io/badge/go-1.21+-00ADD8.svg?logo=go&logoColor=white" alt="Go 1.21+" />
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
+</p>
 
-- **GitHub is the source of truth** — prompts are `.md` files with YAML front-matter in a GitHub repo
-- **SQLite index** — fast search, filtering, and metadata queries without hitting GitHub
-- **Web editor** — split-pane UI with structured YAML form + CodeMirror body editor
-- **Jinja2 rendering** — server-side template rendering with variable substitution, conditionals, loops, includes
-- **SDKs** — Python and TypeScript clients with LRU cache, ETag revalidation, and retry logic
-- **Eval framework** — run promptfoo evaluations from the UI, auto-generate tests with PromptPex
-- **TTS preview** — render prompts and synthesize audio via ElevenLabs directly in the editor
-- **Analytics** — track API usage, cache hit rates, top prompts, and per-key consumption
+<p align="center">
+  <a href="#getting-started">Getting Started</a> &middot;
+  <a href="#sdks">SDKs</a> &middot;
+  <a href="#api-overview">API Docs</a> &middot;
+  <a href="#contributing">Contributing</a>
+</p>
+
+---
+
+## What is Promptdis?
+
+Store LLM prompts as Markdown files in GitHub. Edit them through a web UI. Fetch them at runtime via SDK with automatic caching. No more hardcoded prompts, no more redeploys to change a system message.
+
+Promptdis treats **GitHub as the source of truth** for your prompts — every edit is a Git commit, every rollback is a `git revert`, and your prompt history lives in `git log`. A FastAPI server indexes prompts into SQLite for fast search, while SDKs fetch them at runtime with LRU caching and ETag revalidation.
+
+<!-- TODO: Add hero screenshot of the editor when available -->
+
+## Key Features
+
+- **GitHub is the source of truth** — prompts live as `.md` files with YAML front-matter in your repos
+- **Web editor** — split-pane UI: structured YAML form + CodeMirror body editor with diff view
+- **4 SDKs** — Python, TypeScript, JavaScript, Go — all with LRU cache + ETag revalidation
+- **Jinja2 rendering** — server-side templates with variables, conditionals, loops, and includes
+- **Evaluations** — run [promptfoo](https://www.promptfoo.dev/) evals from the UI, auto-generate tests with [PromptPex](https://microsoft.github.io/promptpex/)
+- **Environment promotion** — dev → staging → production with Git commits
+- **Analytics** — API usage, cache hit rates, top prompts, per-key consumption
+- **TTS preview** — render + synthesize audio via ElevenLabs in the editor
+- **Prompty compatible** — import/export Microsoft [.prompty](https://prompty.ai/) format
+- **Batch operations** — bulk update model, environment, tags in a single commit
+
+## Why Promptdis?
+
+| | Promptdis | LangChain Hub | Vellum | Hardcoded |
+|---|---|---|---|---|
+| Source of truth | Git (your repo) | Cloud | Cloud | Code |
+| Self-hosted | Yes | No | No | N/A |
+| Version history | Git log | Limited | Yes | Git log |
+| Hot reload | Yes (SDK cache) | Yes | Yes | No (redeploy) |
+| Eval framework | Built-in (promptfoo) | No | Yes | No |
+| Open source | MIT | Partial | No | N/A |
+
+**Before:**
+```python
+# Buried in application code, requires redeploy to change
+SYSTEM_PROMPT = """You are a helpful assistant. Be concise and friendly..."""
+```
+
+**After:**
+```python
+from promptdis import PromptClient
+
+client = PromptClient(base_url="http://localhost:8000", api_key="pm_live_...")
+prompt = client.get_by_name("myorg", "myapp", "assistant")
+# Hot-reloads from server, cached locally, versioned in Git
+```
 
 ## Architecture
 
-```
-┌─────────────────┐     ┌──────────────────────────┐     ┌────────────┐
-│  React Frontend │────▶│   FastAPI Server          │────▶│   GitHub   │
-│  (Vite + TS)    │     │                          │     │   (repos)  │
-└─────────────────┘     │  ┌─────────┐ ┌────────┐  │     └────────────┘
-                        │  │ SQLite  │ │ Cache  │  │            │
-┌─────────────────┐     │  │ (index) │ │ (LRU)  │  │     ┌──────┴─────┐
-│  Python SDK     │────▶│  └─────────┘ └────────┘  │     │  Webhooks  │
-│  TypeScript SDK │     └──────────────────────────┘     └────────────┘
-└─────────────────┘
+```mermaid
+flowchart LR
+    subgraph Sources
+        GH[("GitHub Repos\n.md files")]
+    end
+    subgraph Server
+        API["FastAPI"]
+        DB[("SQLite\nindex/cache")]
+        API <--> DB
+    end
+    subgraph Clients
+        WEB["React Web UI"]
+        SDK_PY["Python SDK"]
+        SDK_TS["TS/JS SDK"]
+        SDK_GO["Go SDK"]
+    end
+    GH -- "webhook / sync" --> API
+    API -- "commit" --> GH
+    WEB --> API
+    SDK_PY --> API
+    SDK_TS --> API
+    SDK_GO --> API
 ```
 
-- **Server:** FastAPI + aiosqlite + PyGithub
-- **Frontend:** React 18 + Vite + Tailwind CSS + TanStack Query + CodeMirror 6
-- **Database:** SQLite (index/cache only — GitHub is the source of truth)
-- **Auth:** GitHub OAuth SSO (web) + application-scoped API keys (SDK)
+### Tech Stack
 
-## Quick Start
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3.11+ / FastAPI / aiosqlite |
+| Git Integration | PyGithub (GitHub API) |
+| Auth | GitHub OAuth SSO + bcrypt API keys |
+| Frontend | React 18 + Vite + TailwindCSS + TypeScript |
+| Editor | CodeMirror 6 |
+| SDKs | Python, TypeScript, JavaScript, Go |
+
+## Getting Started
 
 ### Prerequisites
 
@@ -40,7 +115,7 @@ Git-native LLM prompt management platform. Store prompts as Markdown files in Gi
 - Node.js 18+
 - A GitHub OAuth App ([create one](https://github.com/settings/developers))
 
-### 1. Clone and install
+### Quick start
 
 ```bash
 git clone https://github.com/futureself-app/promptdis.git
@@ -51,71 +126,40 @@ pip install -e ".[dev]"
 
 # Frontend
 cd web && npm install && cd ..
-```
 
-### 2. Configure environment
-
-```bash
+# Configure
 cp .env.example .env
+# Edit .env with your GitHub OAuth credentials
 ```
 
-Edit `.env` with your values:
-
-```env
-# Required — GitHub OAuth App credentials
-GITHUB_CLIENT_ID=your_github_oauth_client_id
-GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
-
-# Required — random secret for session encryption
-APP_SECRET_KEY=generate-a-random-64-char-hex-string
-
-# Server URLs
-APP_BASE_URL=http://localhost:8000
-FRONTEND_URL=http://localhost:5173
-
-# Database (created automatically)
-DATABASE_PATH=./data/promptdis.db
-
-# Optional — ElevenLabs TTS preview
-ELEVENLABS_API_KEY=
-
-# Optional
-# LOG_LEVEL=info
-# CORS_ORIGINS=http://localhost:5173
-# RATE_LIMIT_PER_MINUTE=100
-```
-
-### 3. Start the server
+Start the servers:
 
 ```bash
-# Terminal 1 — API server
+# Terminal 1 - API server
 uvicorn server.main:app --reload --port 8000
 
-# Terminal 2 — Frontend dev server
+# Terminal 2 - Frontend
 cd web && npm run dev
 ```
 
-The API is at `http://localhost:8000` (docs at `/docs`). The web UI is at `http://localhost:5173`.
+API: `http://localhost:8000` (interactive docs at `/docs`)
+Web UI: `http://localhost:5173`
 
-### 4. First-time setup
+### Docker
+
+```bash
+docker compose up
+```
+
+This starts the API on port 8000 and the web UI on port 5173. Mount a `.env` file or pass env vars. See [RUNBOOK.md](RUNBOOK.md) for production deployment.
+
+### First-time setup
 
 1. Open `http://localhost:5173` and sign in with GitHub
 2. Your GitHub organizations are synced automatically
 3. Go to **Settings** → **Add Application** → enter a GitHub repo containing `.md` prompt files
-4. Promptdis indexes all `.md` files from the repo into SQLite
+4. Promptdis indexes all `.md` files into SQLite
 5. Browse, edit, and create prompts through the web UI
-
-### Docker / Podman
-
-```bash
-# Build and run both services
-docker compose up
-
-# Or with Podman
-podman-compose up
-```
-
-This starts the API on port 8000 and the web UI on port 5173. Mount a `.env` file or pass env vars.
 
 ## Prompt File Format
 
@@ -123,37 +167,33 @@ Prompts are Markdown files with YAML front-matter:
 
 ```markdown
 ---
-name: meditation_script_relax
-domain: meditation
+name: greeting
+domain: support
 type: chat
 role: system
 version: "1.0.0"
-description: Guided relaxation meditation script
+description: Customer greeting prompt
 model:
-  default: gemini-2.0-flash
+  default: gpt-4o
   temperature: 0.7
-  max_tokens: 4000
+  max_tokens: 2000
 environment: production
 active: true
-tags: [meditation, relax, tts]
-tts:
-  provider: elevenlabs
-  voice_id: "{{ user.elevenlabs_voice_id }}"
-  stability: 0.6
+tags: [support, greeting]
 ---
 
-You are the FutureSelf guide for {{ user.display_name }}.
+You are a helpful support agent for {{ company_name }}.
 
-Their identity statement: "{{ vision.identity_statement }}"
+Greet the customer {{ user.display_name }} warmly.
 
-Generate a calming {{ duration_minutes }}-minute relaxation meditation...
+{% if user.is_returning %}
+Welcome back! We're glad to see you again.
+{% endif %}
 ```
 
-The body supports full Jinja2 syntax: `{{ variables }}`, `{% if %}`, `{% for %}`, `{% include "other_prompt" %}`.
+The body supports full Jinja2: `{{ variables }}`, `{% if %}`, `{% for %}`, `{% include "other_prompt" %}`.
 
-See [PROMPTDIS_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS.md) for the complete YAML front-matter schema.
-
-## Using the SDKs
+## SDKs
 
 ### Python
 
@@ -169,16 +209,13 @@ client = PromptClient(
     api_key="pm_live_...",
 )
 
-# Fetch by ID
-prompt = client.get("550e8400-e29b-41d4-a716-446655440000")
-
 # Fetch by name
-prompt = client.get_by_name("myorg", "myapp", "meditation_script_relax")
+prompt = client.get_by_name("myorg", "myapp", "greeting")
 
 # Render with variables
 rendered = prompt.render(variables={
-    "user": {"display_name": "Alice"},
-    "vision": {"identity_statement": "I am confident"},
+    "company_name": "Acme",
+    "user": {"display_name": "Alice", "is_returning": True},
 })
 ```
 
@@ -200,6 +237,7 @@ const client = new PromptClient({
 
 const prompt = await client.get("550e8400-...");
 const { rendered_body } = await client.render(prompt.id, {
+  company_name: "Acme",
   user: { display_name: "Alice" },
 });
 ```
@@ -228,9 +266,29 @@ const { rendered_body } = await client.render(prompt.id, {
 
 Zero dependencies, no build step, ESM + CJS. See [`sdk-js/README.md`](sdk-js/README.md) for full documentation.
 
+### Go
+
+```bash
+go get github.com/futureself-app/promptdis-go
+```
+
+```go
+client, err := promptdis.NewClient(promptdis.ClientOptions{
+    BaseURL: "http://localhost:8000",
+    APIKey:  "pm_live_...",
+})
+defer client.Close()
+
+ctx := context.Background()
+prompt, err := client.GetByName(ctx, "myorg", "myapp", "greeting")
+rendered := client.RenderLocal(prompt.Body, map[string]string{"name": "Alice"})
+```
+
+See [`sdk-go/README.md`](sdk-go/README.md) for full documentation.
+
 ## Examples
 
-Each SDK includes a runnable example app in its `examples/` directory:
+Each SDK includes runnable examples:
 
 | Language | Location | Run Command |
 |----------|----------|-------------|
@@ -239,11 +297,11 @@ Each SDK includes a runnable example app in its `examples/` directory:
 | TypeScript | `sdk-ts/examples/` | `cd examples && npm start` |
 | Go | `sdk-go/examples/basic/` | `cd examples/basic && go run .` |
 
-All examples require `PROMPTDIS_URL` and `PROMPTDIS_API_KEY` environment variables. See [PROMPTDIS_EXAMPLES.md](../dwight_docs/prompt_mgmt/PROMPTDIS_EXAMPLES.md) for the full guide.
+All examples require `PROMPTDIS_URL` and `PROMPTDIS_API_KEY` environment variables.
 
 ## API Overview
 
-All endpoints are under `/api/v1`. Full documentation: [PROMPTDIS_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS.md)
+All endpoints are under `/api/v1`. Interactive docs available at `/docs` when running.
 
 ### Public API (API key auth)
 
@@ -266,20 +324,14 @@ All endpoints are under `/api/v1`. Full documentation: [PROMPTDIS_API_DOCS.md](.
 | `PUT` | `/admin/prompts/{id}` | Update prompt (commits to GitHub) |
 | `DELETE` | `/admin/prompts/{id}` | Delete prompt |
 | `GET` | `/admin/prompts/{id}/history` | Git commit history |
-| `GET` | `/admin/prompts/{id}/diff/{sha}` | Diff at commit |
 | `POST` | `/admin/prompts/{id}/rollback` | Rollback to SHA |
-| `GET` | `/admin/prompts/{id}/at/{sha}` | Content at specific commit |
 | `POST` | `/admin/prompts/batch` | Batch update fields |
-| `POST` | `/admin/prompts/batch-delete` | Batch delete |
-| `GET` | `/admin/prompts/{id}/export/prompty` | Export as .prompty |
-| `POST` | `/admin/prompts/import/prompty` | Import .prompty file |
 | `POST` | `/admin/prompts/{id}/eval` | Run evaluation |
-| `POST` | `/admin/prompts/{id}/tts-preview` | TTS audio preview |
 | `POST` | `/admin/sync` | Force sync all apps |
 | `GET` | `/admin/analytics/requests-per-day` | API usage chart data |
 | `GET` | `/admin/analytics/top-prompts` | Most-used prompts |
 
-### Auth
+### Auth & Webhooks
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -287,87 +339,48 @@ All endpoints are under `/api/v1`. Full documentation: [PROMPTDIS_API_DOCS.md](.
 | `GET` | `/auth/github/callback` | OAuth callback |
 | `POST` | `/auth/logout` | End session |
 | `GET` | `/auth/me` | Current user |
-
-### Webhooks
-
-| Method | Path | Description |
-|--------|------|-------------|
 | `POST` | `/webhooks/github` | GitHub push event handler |
 
-## Web UI Pages
+## Web UI
 
 | Page | Description |
 |------|-------------|
 | **Dashboard** | Analytics overview — requests/day chart, cache hit rate, top prompts, API key usage |
-| **Prompt Browser** | Grid view with search, filters (type, environment, domain, tags), multi-select batch operations |
-| **Prompt Editor** | Split-pane: YAML front-matter form (left) + CodeMirror body editor (right). Diff view, promote, export .prompty |
+| **Prompt Browser** | Grid view with search, filters (type, environment, domain, tags), multi-select batch ops |
+| **Prompt Editor** | Split-pane: YAML form (left) + CodeMirror body (right). Diff view, promote, export .prompty |
 | **Prompt Preview** | Render with variables, TTS audio preview |
 | **Evaluation** | Run promptfoo evals, model comparison, auto-generate tests |
 | **App Settings** | GitHub repo connection, webhook configuration |
 | **API Keys** | Generate and manage API keys |
 | **Sync Status** | Sync history, force re-sync |
 
-## Key Features
+<!-- TODO: Add screenshots when available -->
+
+## Feature Details
 
 ### Prompt Composition
 
-Use `{% include "prompt_name" %}` to compose prompts from reusable fragments:
-
-```markdown
----
-name: meditation_full
-includes: [safety_preamble, meditation_base]
----
-
-{% include "safety_preamble" %}
-
-{% include "meditation_base" %}
-
-Now personalize for {{ user.display_name }}...
-```
-
-Includes are resolved at render time from the same application's prompts. Max depth: 5 levels. Circular references are detected and rejected.
+Use `{% include "prompt_name" %}` to compose prompts from reusable fragments. Includes are resolved at render time from the same application. Max depth: 5 levels with circular reference detection.
 
 ### Environment Promotion
 
-Prompts move through environments: `development` → `staging` → `production`.
-
-- Use the **Promote** button in the editor to advance a prompt
-- Batch promote multiple prompts at once via the browser's select mode
-- Each promotion creates a Git commit with an auto-generated message
+Prompts move through environments: `development` → `staging` → `production`. Promote from the editor or batch-promote from the browser. Each promotion creates a Git commit.
 
 ### Evaluations
 
-Run [promptfoo](https://www.promptfoo.dev/) evaluations directly from the UI:
-
-1. Define assertions in the prompt's `eval` front-matter section
-2. Click **Run Eval** → select models → view pass/fail results
-3. Auto-generate test cases with [PromptPex](https://microsoft.github.io/promptpex/)
-4. CI/CD: GitHub Action runs evals on PRs that modify prompt files
+Run [promptfoo](https://www.promptfoo.dev/) evaluations from the UI: define assertions in YAML front-matter, select models, view pass/fail results. Auto-generate test cases with [PromptPex](https://microsoft.github.io/promptpex/). CI can run evals on PRs that modify prompt files.
 
 ### Prompty Compatibility
 
-Import and export [.prompty](https://prompty.ai/) files (Microsoft's open prompt format):
-
-- **Export:** Download any prompt as a `.prompty` file from the editor
-- **Import:** Upload `.prompty` files from the browser — they're converted to `.md` and committed to GitHub
+Import and export [.prompty](https://prompty.ai/) files (Microsoft's open prompt format). Export from the editor or import via the browser — files are converted to `.md` and committed to GitHub.
 
 ### TTS Preview
 
-For prompts with `type: tts`, render the template and synthesize audio via ElevenLabs:
-
-1. Set `ELEVENLABS_API_KEY` in `.env`
-2. Click **TTS Preview** in the editor
-3. Audio plays in-browser with file-based caching on the server
+For prompts with `type: tts`, render the template and synthesize audio via ElevenLabs directly in the editor. Requires `ELEVENLABS_API_KEY` in `.env`.
 
 ### Batch Operations
 
-Select multiple prompts in the browser and apply bulk changes in a single Git commit:
-
-- Set environment (dev/staging/production)
-- Toggle active/inactive
-- Delete selected
-- Batch promotion
+Select multiple prompts and apply bulk changes in a single Git commit: set environment, toggle active/inactive, promote, or delete.
 
 ## Project Structure
 
@@ -376,7 +389,7 @@ prompt-mgmt/
 ├── server/                  # FastAPI backend
 │   ├── main.py              # App entry, lifespan, middleware
 │   ├── config.py            # Pydantic Settings (env vars)
-│   ├── auth/                # GitHub OAuth, sessions, API keys, middleware
+│   ├── auth/                # GitHub OAuth, sessions, API keys
 │   ├── api/                 # Route handlers (public, admin, webhooks, eval)
 │   ├── services/            # Business logic (github, sync, render, eval, tts)
 │   ├── db/                  # aiosqlite, migrations, query modules
@@ -384,21 +397,19 @@ prompt-mgmt/
 │   └── utils/               # Front-matter parser, crypto, prompty converter
 ├── web/                     # React + Vite frontend
 │   └── src/
-│       ├── pages/           # 9 route pages
+│       ├── pages/           # Route pages
 │       ├── components/      # Layout, editor, prompts, eval components
 │       ├── hooks/           # React Query hooks
 │       ├── api/             # API client functions
 │       └── lib/             # Zod schemas, constants
 ├── sdk-py/                  # Python SDK (pip install promptdis)
-│   └── src/promptdis/       # Client, async client, cache, models, exceptions
 ├── sdk-ts/                  # TypeScript SDK (@promptdis/client)
-│   └── src/                 # Client, cache, models, errors
+├── sdk-js/                  # JavaScript SDK (@promptdis/client-js)
+├── sdk-go/                  # Go SDK
 ├── tests/                   # Python test suite
-│   ├── conftest.py          # Shared fixtures (in-memory DB, seed data)
-│   ├── server/              # Backend tests (18 files)
-│   └── sdk-py/              # SDK tests (3 files)
+│   ├── server/              # Backend tests
+│   └── sdk-py/              # SDK tests
 ├── .github/workflows/       # CI, prompt evals, PyPI publish
-├── pyproject.toml           # Server dependencies
 ├── docker-compose.yml       # Dev environment
 ├── Dockerfile               # Production build
 └── .env.example             # Environment template
@@ -419,67 +430,19 @@ cd sdk-ts && npx vitest run
 
 **337 total tests** across Python backend, web frontend, and TypeScript SDK.
 
-## CI/CD
+## Deployment
 
-### GitHub Actions
+- **Local:** `docker compose up` — starts API + web UI
+- **Production:** See [RUNBOOK.md](RUNBOOK.md) for container deployment guide
+- **CI/CD:** GitHub Actions for lint, test, container build, and PyPI publish (see `.github/workflows/`)
 
-- **`ci.yml`** — Runs on every push: ruff lint, tsc type-check, pytest, vitest, container build
-- **`prompt-evals.yml`** — Runs on PRs that modify `.md` files: executes promptfoo evaluations, posts results as PR comment, optionally blocks merge
-- **`publish.yml`** — Publishes Python SDK to PyPI on `v*` git tags
+## Contributing
 
-## Configuration Reference
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR guidelines.
 
-All configuration is via environment variables (loaded from `.env`):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GITHUB_CLIENT_ID` | (required) | GitHub OAuth App client ID |
-| `GITHUB_CLIENT_SECRET` | (required) | GitHub OAuth App client secret |
-| `APP_SECRET_KEY` | `change-me-in-production` | Secret for session/token encryption |
-| `APP_BASE_URL` | `http://localhost:8000` | Server base URL |
-| `FRONTEND_URL` | `http://localhost:5173` | Frontend URL (for OAuth redirect) |
-| `DATABASE_PATH` | `./data/promptdis.db` | SQLite database file path |
-| `LOG_LEVEL` | `info` | Logging level |
-| `RATE_LIMIT_PER_MINUTE` | `100` | API rate limit per key/IP |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
-| `ELEVENLABS_API_KEY` | (empty) | ElevenLabs API key for TTS preview |
-| `ELEVENLABS_DEFAULT_MODEL` | `eleven_multilingual_v2` | Default TTS model |
-| `ELEVENLABS_DEFAULT_VOICE_ID` | (empty) | Fallback voice ID |
-| `TTS_CACHE_DIR` | `./data/tts_cache` | TTS audio cache directory |
-| `TTS_CACHE_MAX_ENTRIES` | `100` | Max cached TTS files |
-| `TTS_CACHE_TTL_HOURS` | `24` | TTS cache expiry |
-
-## Database
-
-SQLite is used as a fast index/cache layer. GitHub remains the source of truth for all prompt content.
-
-**Schema (11 tables):** organizations, applications, prompts, users, sessions, org_memberships, api_keys, eval_runs, prompt_access_log, webhook_deliveries, schema_version
-
-Migrations run automatically on server startup from `server/db/migrations/`. The database file is created at `DATABASE_PATH` if it doesn't exist.
-
-## Build Phases
-
-The project was built in 4 phases (Phase 5 is FutureSelf-specific integration):
-
-| Phase | Scope | Status |
-|-------|-------|--------|
-| **1. Core Platform** | FastAPI scaffold, SQLite, GitHub OAuth, sync, public/admin API, Python SDK, React frontend (9 pages) | Complete |
-| **2. Eval & Testing** | Promptfoo runner, PromptPex, eval UI, CI/CD, 238 tests | Complete |
-| **3. Multi-Modal & TTS** | TTS/audio front-matter UI, ElevenLabs preview, modality badges | Complete |
-| **4. Advanced Features** | TypeScript SDK, prompt composition, analytics, diff viewer, batch ops, Prompty import/export, environment promotion | Complete |
-| **5. FutureSelf Integration** | Server deployment, SDK integration, prompt migration | Planned |
-
-See [PROMPT_APP_BUILD_CHECKLIST.md](../dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md) for the full sprint-by-sprint tracker.
-
-## Incomplete / Planned Items
-
-- **TypeScript SDK `render()`** — local rendering supports basic `{{var}}` substitution only (no Jinja2). Use `client.render()` for server-side rendering with full Jinja2 support.
-- **Analytics percentiles** — SQLite approximation (avg/min/max) instead of exact p50/p90/p99.
-- **Prompty import** — core fields mapped; Prompty-specific `sample` field is best-effort.
-- **npm publish workflow** — TypeScript SDK does not yet have a publish workflow (`sdk-ts/` needs npm publish CI).
-- **Docker Compose for TS SDK** — not included in `docker-compose.yml`.
-- **Phase 5** — FutureSelf integration (server deployment, SDK wiring, prompt migration) is not started.
+- [Open an issue](https://github.com/futureself-app/promptdis/issues) to report bugs or request features
+- [Submit a PR](https://github.com/futureself-app/promptdis/pulls) — all skill levels welcome
 
 ## License
 
-MIT
+[MIT](LICENSE) — see the [LICENSE](LICENSE) file for details.
