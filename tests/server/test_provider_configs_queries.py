@@ -6,7 +6,7 @@ import pytest
 
 from server.db.queries import provider_configs as pc_queries
 
-from tests.conftest import APP_ID, USER_ID
+from tests.conftest import APP_ID
 
 
 class TestProviderConfigsCRUD:

@@ -6,14 +6,12 @@ import json
 from unittest.mock import patch
 
 import pytest
-import pytest_asyncio
 
 from server.db.queries import provider_configs as pc_queries
 from server.services.credential_service import (
     resolve_credential,
     resolve_eval_env_vars,
 )
-from server.utils.crypto import encrypt
 
 from tests.conftest import APP_ID, USER_ID
 
