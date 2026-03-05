@@ -1,0 +1,519 @@
+
+╭─── Claude Code v2.1.69 ──────────────────────────────────────────────────────╮
+│                                                    │ Recent activity         │
+│                 Welcome back Loren!                │ No recent activity      │
+│                                                    │ ─────────────────────── │
+│                       ▐▛███▜▌                      │ What's new              │
+│                      ▝▜█████▛▘                     │ Added the `/claude-api… │
+│                        ▘▘ ▝▝                       │ Added Ctrl+U on an emp… │
+│                                                    │ Added numeric keypad s… │
+│ Opus 4.6 · Claude Max · lorenwinzeler@gmail.com's  │ /release-notes for more │
+│ Organization                                       │                         │
+│        ~/src/futureself/prompt-mgmt/sdk-js         │                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ SDK-JS Plan: JavaScript SDK for Promptdis                                    │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ Promptdis has SDKs in Python (sdk-py/), TypeScript (sdk-ts/), and Go         │
+│ (sdk-go/). The TypeScript SDK is ESM-only and requires TypeScript tooling. A │
+│  pure JavaScript SDK in sdk-js/ will serve developers who want a zero-build, │
+│  no-TypeScript dependency client that works in both ESM and CommonJS         │
+│ environments. The JS SDK is a direct port of the TS SDK with JSDoc           │
+│ annotations instead of TypeScript types.                                     │
+│                                                                              │
+│ ---                                                                          │
+│ 1. Create sdk-js/ — Source Files                                             │
+│                                                                              │
+│ Port directly from sdk-ts/src/ (the TS SDK is the closest analog). All       │
+│ source files are plain .js with JSDoc annotations for IDE support.           │
+│                                                                              │
+│ sdk-js/package.json                                                          │
+│                                                                              │
+│ - Name: @promptdis/client-js                                                 │
+│ - Version: 0.1.0                                                             │
+│ - "type": "module" (.js files are ESM by default)                            │
+│ - Conditional "exports" with "import" → ./src/index.js and "require" →       │
+│ ./cjs/index.cjs                                                              │
+│ - "main": "./cjs/index.cjs", "module": "./src/index.js"                      │
+│ - "files": ["src", "cjs", "README.md", "LICENSE"]                            │
+│ - "engines": { "node": ">=18.0.0" }                                          │
+│ - Zero runtime deps; devDependencies: vitest ^2.0.0                          │
+│ - Scripts: test → vitest run, test:watch → vitest                            │
+│                                                                              │
+│ sdk-js/src/errors.js                                                         │
+│                                                                              │
+│ - Port from sdk-ts/src/errors.ts (43 lines)                                  │
+│ - 5 error classes: PromptdisError, NotFoundError, AuthenticationError,       │
+│ ForbiddenError, RateLimitError                                               │
+│ - RateLimitError has retryAfter property                                     │
+│ - JSDoc @class / @extends annotations                                        │
+│                                                                              │
+│ sdk-js/src/cache.js                                                          │
+│                                                                              │
+│ - Port from sdk-ts/src/cache.ts (72 lines)                                   │
+│ - LRUCache class using Map for insertion-order LRU                           │
+│ - Methods: get(key), set(key, value, etag), invalidate(key), clear(),        │
+│ stats(), size getter                                                         │
+│ - TTL expiry check on get(), eviction on set() overflow                      │
+│ - JSDoc @template T annotation                                               │
+│                                                                              │
+│ sdk-js/src/models.js                                                         │
+│                                                                              │
+│ - Port from sdk-ts/src/models.ts (33 lines)                                  │
+│ - @typedef {Object} Prompt JSDoc with all 17 fields                          │
+│ - renderLocal(body, variables) — regex {{var}} substitution, missing vars →  │
+│ empty string                                                                 │
+│                                                                              │
+│ sdk-js/src/client.js                                                         │
+│                                                                              │
+│ - Port from sdk-ts/src/client.ts (210 lines)                                 │
+│ - @typedef {Object} PromptClientOptions — baseUrl, apiKey, cacheMaxSize,     │
+│ cacheTtlMs, maxRetries                                                       │
+│ - PromptClient class with public methods: get(), getByName(), render(),      │
+│ renderLocal(), cacheStats(), cacheInvalidate(), cacheClear()                 │
+│ - Private methods: _fetchWithCache(), _fetch(), _fetchRaw(), _handleError()  │
+│ - Native fetch, Authorization: Bearer header, exponential backoff (1s, 2s,   │
+│ 4s capped at 10s), Retry-After on 429                                        │
+│ - ETag caching with If-None-Match / 304 handling                             │
+│                                                                              │
+│ sdk-js/src/index.js                                                          │
+│                                                                              │
+│ - Barrel re-export of PromptClient, renderLocal, LRUCache, and all error     │
+│ classes                                                                      │
+│                                                                              │
+│ sdk-js/cjs/index.cjs                                                         │
+│                                                                              │
+│ - Thin CJS wrapper: module.exports = import("../src/index.js");              │
+│ - CJS consumers use const { PromptClient } = await                           │
+│ require("@promptdis/client-js")                                              │
+│ - Document this async pattern in README                                      │
+│                                                                              │
+│ ---                                                                          │
+│ 2. Create sdk-js/ — Tests                                                    │
+│                                                                              │
+│ sdk-js/tests/client.test.js                                                  │
+│                                                                              │
+│ - Port from sdk-ts/tests/client.test.ts (166 lines)                          │
+│ - Vitest with vi.stubGlobal("fetch", mockFetch)                              │
+│ - Test suites:                                                               │
+│   a. PromptClient — constructor validation, auth header                      │
+│   b. get() — success, 404→NotFoundError, 401→AuthenticationError,            │
+│ 429→RateLimitError                                                           │
+│   c. getByName() — basic fetch, environment query param                      │
+│   d. Cache — hit/miss, ETag/304 revalidation, stats, invalidate              │
+│   e. LRUCache — get/set, eviction, TTL expiry, clear                         │
+│   f. renderLocal() — substitution, whitespace in braces, missing vars        │
+│                                                                              │
+│ sdk-js/vitest.config.js                                                      │
+│                                                                              │
+│ - defineConfig({ test: { globals: true } })                                  │
+│                                                                              │
+│ ---                                                                          │
+│ 3. Create sdk-js/README.md                                                   │
+│                                                                              │
+│ Mirror sdk-ts/README.md structure with JS-specific adjustments:              │
+│ - Package: @promptdis/client-js                                              │
+│ - All examples in plain JavaScript                                           │
+│ - Both ESM (import) and CJS (require) usage patterns                         │
+│ - Node.js 18+ requirement                                                    │
+│ - Sections: Installation, Quick Start, Client Options, Fetching, Rendering,  │
+│ Prompt Object Shape, Caching, Error Handling, Retry Logic, Integration       │
+│ Example (Anthropic SDK), API Reference table, Differences from TS/Python     │
+│ SDKs, Development                                                            │
+│ - Note: "Use @promptdis/client (TS SDK) if you want TypeScript type safety"  │
+│                                                                              │
+│ ---                                                                          │
+│ 4. Update Main README.md                                                     │
+│                                                                              │
+│ File: /Users/lorenwinzeler/src/futureself/prompt-mgmt/README.md              │
+│                                                                              │
+│ - Add ### JavaScript section after the TypeScript section (after line 207),  │
+│ with:                                                                        │
+│   - npm install @promptdis/client-js                                         │
+│   - Quick start code example in plain JS                                     │
+│   - Link to sdk-js/README.md                                                 │
+│                                                                              │
+│ ---                                                                          │
+│ 5. Update Spec: PROMPT_APP.md                                                │
+│                                                                              │
+│ File: ~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md                 │
+│                                                                              │
+│ - Table of Contents (line 28): Add 8b. [JavaScript SDK](#8b-javascript-sdk)  │
+│ after Python SDK entry                                                       │
+│ - Section 8 area (after line 1286): Add new ## 8b. JavaScript SDK section    │
+│ with:                                                                        │
+│   - Installation (npm install @promptdis/client-js)                          │
+│   - Client API example (ESM import, constructor, get, getByName, render,     │
+│ renderLocal)                                                                 │
+│   - Note on CJS usage                                                        │
+│   - Note: "Functionally identical to TypeScript SDK (§8a) without TypeScript │
+│  dependency"                                                                 │
+│ - Section 12 Repo Structure (after line 1682): Add sdk-js/ tree alongside    │
+│ sdk-py/                                                                      │
+│ - Phase 4 table (around line 1436): Add JS SDK entry                         │
+│                                                                              │
+│ ---                                                                          │
+│ 6. Update API Docs: PROMPTORY_API_DOCS.md                                    │
+│                                                                              │
+│ File: ~/src/futureself/dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md         │
+│                                                                              │
+│ - After the Go SDK Reference section (line 392): Add ### JavaScript SDK      │
+│ Reference section with:                                                      │
+│   - Installation command                                                     │
+│   - Client constructor example                                               │
+│   - Methods table (same format as Go SDK section)                            │
+│   - Error handling example                                                   │
+│   - Link to sdk-js/README.md                                                 │
+│ - Known Limitations section (around line 1847): Add JS SDK local rendering   │
+│ limitation entry                                                             │
+│ - npm publish workflow entry (line 1853): Add note about JS SDK              │
+│                                                                              │
+│ ---                                                                          │
+│ 7. Create sdk-js/LICENSE                                                     │
+│                                                                              │
+│ MIT license file (same as repo).                                             │
+│                                                                              │
+│ ---                                                                          │
+│ Files Summary                                                                │
+│                                                                              │
+│ New files (sdk-js/)                                                          │
+│                                                                              │
+│ ┌─────────────────────────────┬───────────────────────────────┬────────┐     │
+│ │            File             │       Source/Port From        │ ~Lines │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/package.json         │ new                           │ 25     │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/src/index.js         │ sdk-ts/src/index.ts           │ 10     │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/src/client.js        │ sdk-ts/src/client.ts          │ ~210   │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/src/models.js        │ sdk-ts/src/models.ts          │ ~40    │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/src/errors.js        │ sdk-ts/src/errors.ts          │ ~45    │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/src/cache.js         │ sdk-ts/src/cache.ts           │ ~75    │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/cjs/index.cjs        │ new                           │ 5      │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/tests/client.test.js │ sdk-ts/tests/client.test.ts   │ ~170   │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/vitest.config.js     │ new                           │ 5      │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/README.md            │ adapted from sdk-ts/README.md │ ~250   │     │
+│ ├─────────────────────────────┼───────────────────────────────┼────────┤     │
+│ │ sdk-js/LICENSE              │ repo root                     │ ~20    │     │
+│ └─────────────────────────────┴───────────────────────────────┴────────┘     │
+│                                                                              │
+│ Modified files                                                               │
+│                                                                              │
+│ ┌─────────────────────────────────────────────────┬────────────────────────┐ │
+│ │                      File                       │        Changes         │ │
+│ ├─────────────────────────────────────────────────┼────────────────────────┤ │
+│ │ README.md (repo root)                           │ Add JS SDK section     │ │
+│ │                                                 │ after TS section       │ │
+│ ├─────────────────────────────────────────────────┼────────────────────────┤ │
+│ │                                                 │ Add §8b JS SDK, update │ │
+│ │ ~/dwight_docs/prompt_mgmt/PROMPT_APP.md         │  ToC, update repo      │ │
+│ │                                                 │ structure, update      │ │
+│ │                                                 │ Phase 4                │ │
+│ ├─────────────────────────────────────────────────┼────────────────────────┤ │
+│ │                                                 │ Add JS SDK Reference   │ │
+│ │ ~/dwight_docs/prompt_mgmt/PROMPTORY_API_DOCS.md │ section, update known  │ │
+│ │                                                 │ limitations            │ │
+│ └─────────────────────────────────────────────────┴────────────────────────┘ │
+│                                                                              │
+│ ---                                                                          │
+│ Verification                                                                 │
+│                                                                              │
+│ 1. Install & test: cd sdk-js && npm install && npm test — all tests pass     │
+│ 2. ESM import: node -e "import('@promptdis/client-js').then(m =>             │
+│ console.log(Object.keys(m)))" from sdk-js dir                                │
+│ 3. CJS require: node -e "require('./cjs/index.cjs').then(m =>                │
+│ console.log(Object.keys(m)))" from sdk-js dir                                │
+│ 4. Lint check: No TypeScript syntax in any .js file                          │
+│ 5. README links: Verify all internal links resolve                           │
+│ 6. Spec consistency: Verify JS SDK section matches patterns of Python/Go SDK │
+│  sections in PROMPT_APP.md and PROMPTORY_API_DOCS.md                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ I'll start by reading the TypeScript SDK source files to port them.
+
+⏺ Read 8 files (ctrl+o to expand)
+
+⏺ Now let me read the files I need to modify.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ No LICENSE file exists yet. Let me check the spec files exist and read the
+  relevant sections.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Now I have all the context I need. Let me create all the SDK source files and
+  then update the docs. I'll use agents for the doc updates and create the
+  source files directly.
+
+⏺ Write(package.json)
+  ⎿  Wrote 27 lines to package.json
+       1 {
+       2   "name": "@promptdis/client-js",
+       3   "version": "0.1.0",
+       4   "description": "JavaScript SDK for Promptdis — Git-native LLM 
+         prompt management",
+       5   "type": "module",
+       6   "main": "./cjs/index.cjs",
+       7   "module": "./src/index.js",
+       8   "exports": {
+       9     ".": {
+      10       "import": "./src/index.js",
+     … +17 lines (ctrl+o to expand)
+
+⏺ Write(src/errors.js)
+  ⎿  Wrote 44 lines to src/errors.js
+       1 /** Base error for all Promptdis SDK errors. */
+       2 export class PromptdisError extends Error {
+       3   constructor(message) {
+       4     super(message);
+       5     this.name = "PromptdisError";
+       6   }
+       7 }
+       8 
+       9 /** Thrown when a prompt is not found (404). */
+      10 export class NotFoundError extends PromptdisError {
+     … +34 lines (ctrl+o to expand)
+
+⏺ Write(src/cache.js)
+  ⎿  Wrote 81 lines to src/cache.js
+      1 /**
+      2  * LRU cache with TTL support using Map insertion order.
+      3  * Map preserves insertion order — oldest entries are evicted fir
+        st.
+      4  */
+      5 export class LRUCache {
+      6   /** @type {Map<string, {value: *, etag: string|null, expiresAt:
+         number}>} */
+      7   #map = new Map();
+      8   #maxSize;
+      9   #ttlMs;
+     … +71 lines (ctrl+o to expand)
+
+⏺ Write(src/models.js)
+  ⎿  Wrote 37 lines to src/models.js
+       1 /**
+       2  * @typedef {Object} Prompt
+       3  * @property {string} id
+       4  * @property {string} name
+       5  * @property {string} version
+       6  * @property {string} org
+       7  * @property {string} app
+       8  * @property {string|null} domain
+       9  * @property {string|null} description
+      10  * @property {string} type
+     … +27 lines (ctrl+o to expand)
+
+⏺ Write(src/client.js)
+  ⎿  Wrote 233 lines to src/client.js
+      1 import { LRUCache } from "./cache.js";
+      2 import {
+      3   PromptdisError,
+      4   NotFoundError,
+      5   AuthenticationError,
+      6   ForbiddenError,
+      7   RateLimitError,
+      8 } from "./errors.js";
+      9 import { renderLocal } from "./models.js";
+     … +223 lines (ctrl+o to expand)
+
+⏺ Write(src/index.js)
+  ⎿  Wrote 10 lines to src/index.js
+       1 export { PromptClient } from "./client.js";
+       2 export { renderLocal } from "./models.js";
+       3 export { LRUCache } from "./cache.js";
+       4 export {
+       5   PromptdisError,
+       6   NotFoundError,
+       7   AuthenticationError,
+       8   ForbiddenError,
+       9   RateLimitError,
+      10 } from "./errors.js";
+
+⏺ Write(cjs/index.cjs)
+  ⎿  Wrote 1 lines to cjs/index.cjs
+      1 module.exports = import("../src/index.js");
+
+⏺ Write(vitest.config.js)
+  ⎿  Wrote 5 lines to vitest.config.js
+      1 import { defineConfig } from "vitest/config";
+      2 
+      3 export default defineConfig({
+      4   test: { globals: true },
+      5 });
+
+⏺ Write(tests/client.test.js)
+  ⎿  Wrote 166 lines to tests/client.test.js
+      1 import { describe, it, expect, vi, beforeEach } from "vitest";
+      2 import { PromptClient } from "../src/client.js";
+      3 import { NotFoundError, AuthenticationError, RateLimitError } fro
+        m "../src/errors.js";
+      4 import { LRUCache } from "../src/cache.js";
+      5 import { renderLocal } from "../src/models.js";
+      6 
+      7 // Mock fetch globally
+      8 const mockFetch = vi.fn();
+      9 vi.stubGlobal("fetch", mockFetch);
+     … +156 lines (ctrl+o to expand)
+
+⏺ Write(LICENSE)
+  ⎿  Wrote 21 lines to LICENSE
+       1 MIT License
+       2 
+       3 Copyright (c) 2025 FutureSelf
+       4 
+       5 Permission is hereby granted, free of charge, to any person obta
+         ining a copy
+       6 of this software and associated documentation files (the "Softwa
+         re"), to deal
+       7 in the Software without restriction, including without limitatio
+         n the rights
+       8 to use, copy, modify, merge, publish, distribute, sublicense, an
+         d/or sell
+       9 copies of the Software, and to permit persons to whom the Softwa
+         re is
+      10 furnished to do so, subject to the following conditions:
+     … +11 lines (ctrl+o to expand)
+
+⏺ Now let me create the README and install + run tests in parallel.
+
+⏺ Write(README.md)
+  ⎿  Wrote 343 lines to README.md
+      1 # @promptdis/client-js
+      2 
+      3 JavaScript SDK for [Promptdis](https://github.com/futureself-app/
+        promptdis) — Git-native LLM prompt management.
+      4 
+      5 Fetch, cache, and render LLM prompts from a Promptdis server. Zer
+        o dependencies — uses native `fetch`. Built-in LRU cache with ETa
+        g revalidation and retry with exponential backoff.
+      6 
+      7 **No TypeScript required.** For TypeScript type safety, use [`@pr
+        omptdis/client`](../sdk-ts/README.md) instead.
+      8 
+      9 ## Installation
+     … +333 lines (ctrl+o to expand)
+
+⏺ Bash(cd /Users/lorenwinzeler/src/futureself/prompt-mgmt/sdk-js && npm install
+      2>&1)
+  ⎿  added 43 packages, and audited 44 packages in 4s
+
+     12 packages are looking for funding
+     … +8 lines (ctrl+o to expand)
+
+⏺ Bash(npm test 2>&1)
+  ⎿  > @promptdis/client-js@0.1.0 test
+     > vitest run
+     … +10 lines (ctrl+o to expand)
+
+⏺ All 18 tests pass. Now let me update the docs. Let me read the sections I need
+   to modify.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/src/futureself/prompt-mgmt/README.md)
+  ⎿  Added 22 lines
+      206  
+      207  See [`sdk-ts/README.md`](sdk-ts/README.md) for full documentat
+           ion.
+      208  
+      209 +### JavaScript                                                
+      210 +                                                              
+      211 +```bash                                                       
+      212 +npm install @promptdis/client-js                              
+      213 +```                                                           
+      214 +                                                              
+      215 +```js                                                         
+      216 +import { PromptClient } from "@promptdis/client-js";          
+      217 +                                                              
+      218 +const client = new PromptClient({                             
+      219 +  baseUrl: "http://localhost:8000",                           
+      220 +  apiKey: "pm_live_...",                                      
+      221 +});                                                           
+      222 +                                                              
+      223 +const prompt = await client.get("550e8400-...");              
+      224 +const { rendered_body } = await client.render(prompt.id, {    
+      225 +  user: { display_name: "Alice" },                            
+      226 +});                                                           
+      227 +```                                                           
+      228 +                                                              
+      229 +Zero dependencies, no build step, ESM + CJS. See [`sdk-js/READ
+          +ME.md`](sdk-js/README.md) for full documentation.             
+      230 +                                                              
+      231  ## API Overview
+      232  
+      233  All endpoints are under `/api/v1`. Full documentation: [PROMPT
+           DIS_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS
+           .md)
+
+⏺ Now update the spec docs. Let me do both doc updates in parallel with agents.
+
+⏺ 2 agents finished (ctrl+o to expand)
+   ├─ Update PROMPT_APP.md spec · 9 tool uses · 8.3k tokens
+   │  ⎿  Done
+   └─ Update PROMPTORY_API_DOCS.md · 9 tool uses · 8.3k tokens
+      ⎿  Done
+
+⏺ All done. Here's a summary:
+
+  New files (sdk-js/)
+
+  ┌──────────────────────┬───────────────────────────────────────────────────┐
+  │         File         │                    Description                    │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ package.json         │ @promptdis/client-js with ESM + CJS exports       │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ src/errors.js        │ 5 error classes with JSDoc annotations            │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ src/cache.js         │ LRUCache with private fields (#map, #maxSize,     │
+  │                      │ #ttlMs)                                           │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ src/models.js        │ Prompt typedef + renderLocal()                    │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ src/client.js        │ PromptClient with private methods via # syntax    │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ src/index.js         │ Barrel re-exports                                 │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ cjs/index.cjs        │ CJS wrapper via dynamic import()                  │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ tests/client.test.js │ 18 tests (all passing)                            │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ vitest.config.js     │ Vitest config                                     │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ README.md            │ Full docs with ESM/CJS examples                   │
+  ├──────────────────────┼───────────────────────────────────────────────────┤
+  │ LICENSE              │ MIT                                               │
+  └──────────────────────┴───────────────────────────────────────────────────┘
+
+  Modified files
+
+  ┌───────────────────────┬──────────────────────────────────────────────────┐
+  │         File          │                      Change                      │
+  ├───────────────────────┼──────────────────────────────────────────────────┤
+  │ README.md (repo root) │ Added JavaScript SDK section after TypeScript    │
+  │                       │ section                                          │
+  ├───────────────────────┼──────────────────────────────────────────────────┤
+  │ PROMPT_APP.md         │ Added §8b JS SDK, ToC entry, Phase 4 row, repo   │
+  │                       │ structure tree                                   │
+  ├───────────────────────┼──────────────────────────────────────────────────┤
+  │ PROMPTORY_API_DOCS.md │ Added JS SDK Reference section, known            │
+  │                       │ limitations entry, updated npm publish note      │
+  └───────────────────────┴──────────────────────────────────────────────────┘
+
+  Test results
+
+  18 passed (18) — 353ms
+
+✻ Brewed for 3m 43s
