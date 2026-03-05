@@ -206,6 +206,28 @@ const { rendered_body } = await client.render(prompt.id, {
 
 See [`sdk-ts/README.md`](sdk-ts/README.md) for full documentation.
 
+### JavaScript
+
+```bash
+npm install @promptdis/client-js
+```
+
+```js
+import { PromptClient } from "@promptdis/client-js";
+
+const client = new PromptClient({
+  baseUrl: "http://localhost:8000",
+  apiKey: "pm_live_...",
+});
+
+const prompt = await client.get("550e8400-...");
+const { rendered_body } = await client.render(prompt.id, {
+  user: { display_name: "Alice" },
+});
+```
+
+Zero dependencies, no build step, ESM + CJS. See [`sdk-js/README.md`](sdk-js/README.md) for full documentation.
+
 ## API Overview
 
 All endpoints are under `/api/v1`. Full documentation: [PROMPTDIS_API_DOCS.md](../dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS.md)
