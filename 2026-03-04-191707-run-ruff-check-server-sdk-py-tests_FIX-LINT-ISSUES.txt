@@ -1,0 +1,59 @@
+
+╭─── Claude Code v2.1.69 ──────────────────────────────────────────────────────╮
+│                                                    │ Recent activity         │
+│                 Welcome back Loren!                │ No recent activity      │
+│                                                    │ ─────────────────────── │
+│                       ▐▛███▜▌                      │ What's new              │
+│                      ▝▜█████▛▘                     │ Added the `/claude-api… │
+│                        ▘▘ ▝▝                       │ Added Ctrl+U on an emp… │
+│                                                    │ Added numeric keypad s… │
+│ Opus 4.6 · Claude Max · lorenwinzeler@gmail.com's  │ /release-notes for more │
+│ Organization                                       │                         │
+│            ~/src/futureself/prompt-mgmt            │                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ Run ruff check server/ sdk-py/ tests/                                     
+  F401 [*] `pytest_asyncio` imported but unused                             
+    --> tests/server/test_credential_service.py:9:8                         
+     |                                                                      
+   8 | import pytest                                                        
+   9 | import pytest_asyncio                                                
+     |        ^^^^^^^^^^^^^^                                                
+  10 |                                                                      
+  11 | from server.db.queries import provider_configs as pc_queries         
+     |                                                                      
+  help: Remove unused import: `pytest_asyncio`                              
+                                                                            
+  F401 [*] `server.utils.crypto.encrypt` imported but unused                
+    --> tests/server/test_credential_service.py:16:33                       
+     |                                                                      
+  14 |     resolve_eval_env_vars,                                           
+  15 | )                                                                    
+  16 | from server.utils.crypto import encrypt                              
+     |                                 ^^^^^^^                              
+  17 |                                                                      
+  18 | from tests.conftest import APP_ID, USER_ID                           
+     |                                                                      
+  help: Remove unused import: `server.utils.crypto.encrypt`                 
+                                                                            
+  F401 [*] `tests.conftest.USER_ID` imported but unused                     
+   --> tests/server/test_provider_configs_queries.py:9:36                   
+    |                                                                       
+  7 | from server.db.queries import provider_configs as pc_queries          
+  8 |                                                                       
+  9 | from tests.conftest import APP_ID, USER_ID                            
+    |                                    ^^^^^^^                            
+    |                                                                       
+  help: Remove unused import: `tests.conftest.USER_ID`                      
+                                                                            
+  Found 3 errors.                                                           
+  [*] 3 fixable with the `--fix` option.                                    
+                                                                            
+
+⏺ Bash(ruff check --fix server/ sdk-py/ tests/)
+  ⎿  Found 3 errors (3 fixed, 0 remaining).
+
+⏺ All 3 unused imports have been fixed:
+  - Removed pytest_asyncio from tests/server/test_credential_service.py
+  - Removed encrypt from tests/server/test_credential_service.py
+  - Removed USER_ID from tests/server/test_provider_configs_queries.py

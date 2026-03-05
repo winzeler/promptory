@@ -61,14 +61,25 @@ async def get_cached_audio(text: str, tts_config: dict) -> str | None:
     return url
 
 
-async def synthesize_tts(rendered_body: str, tts_config: dict) -> str:
+async def synthesize_tts(
+    rendered_body: str,
+    tts_config: dict,
+    credentials: dict | None = None,
+) -> str:
     """Synthesize text to speech via ElevenLabs. Returns URL/path to audio.
+
+    Args:
+        rendered_body: The rendered text to synthesize.
+        tts_config: TTS configuration (voice_id, model_id, voice settings).
+        credentials: Optional per-app/user credentials dict with 'api_key'.
+            Falls back to global settings.elevenlabs_api_key if not provided.
 
     Raises:
         TTSNotConfiguredError: If no API key is set.
         TTSError: If the API call fails.
     """
-    if not is_tts_configured():
+    api_key = (credentials or {}).get("api_key") or settings.elevenlabs_api_key
+    if not api_key:
         raise TTSNotConfiguredError("ElevenLabs API key not configured")
 
     # Check cache first
@@ -85,7 +96,7 @@ async def synthesize_tts(rendered_body: str, tts_config: dict) -> str:
 
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     headers = {
-        "xi-api-key": settings.elevenlabs_api_key,
+        "xi-api-key": api_key,
         "Content-Type": "application/json",
         "Accept": "audio/mpeg",
     }

@@ -3,12 +3,17 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../api/client";
 import { App } from "../api/prompts";
+import ProviderConfigCard, {
+  type ProviderStatus,
+} from "../components/settings/ProviderConfigCard";
+import ProviderSecretModal from "../components/settings/ProviderSecretModal";
 
 export default function AppSettingsPage() {
   const { appId } = useParams<{ appId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [configuringProvider, setConfiguringProvider] = useState<string | null>(null);
 
   const { data: app, isLoading } = useQuery({
     queryKey: ["app", appId],
@@ -21,6 +26,53 @@ export default function AppSettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["apps"] });
       navigate("/");
+    },
+  });
+
+  const { data: registry } = useQuery({
+    queryKey: ["provider-registry"],
+    queryFn: () =>
+      apiFetch<{ providers: Record<string, { category: string; models: string[] }> }>(
+        "/api/v1/admin/providers/registry"
+      ),
+    enabled: !!appId,
+  });
+
+  const { data: providerStatus } = useQuery({
+    queryKey: ["app-provider-status", appId],
+    queryFn: () =>
+      apiFetch<{ providers: Record<string, ProviderStatus> }>(
+        `/api/v1/admin/apps/${appId}/providers/status`
+      ),
+    enabled: !!appId,
+  });
+
+  const saveProviderMutation = useMutation({
+    mutationFn: (data: {
+      provider: string;
+      secrets: Record<string, string>;
+      environment?: string;
+    }) =>
+      apiFetch(`/api/v1/admin/apps/${appId}/providers/${data.provider}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          secrets: data.secrets,
+          environment: data.environment,
+        }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["app-provider-status", appId] });
+      setConfiguringProvider(null);
+    },
+  });
+
+  const removeProviderMutation = useMutation({
+    mutationFn: (provider: string) =>
+      apiFetch(`/api/v1/admin/apps/${appId}/providers/${provider}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["app-provider-status", appId] });
     },
   });
 
@@ -89,6 +141,43 @@ export default function AppSettingsPage() {
           Save Settings
         </button>
       </div>
+
+      {/* Provider Credentials */}
+      {registry && (
+        <div className="max-w-2xl space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Provider Credentials</h2>
+            <p className="text-sm text-gray-500">
+              Configure API keys for LLM and TTS providers. App-level keys override personal and server defaults.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {Object.entries(registry.providers).map(([name, info]) => (
+              <ProviderConfigCard
+                key={name}
+                provider={name}
+                category={info.category}
+                models={info.models}
+                status={providerStatus?.providers?.[name] ?? null}
+                onConfigure={setConfiguringProvider}
+                onRemove={(p) => removeProviderMutation.mutate(p)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {configuringProvider && appId && (
+        <ProviderSecretModal
+          provider={configuringProvider}
+          scope="app"
+          onClose={() => setConfiguringProvider(null)}
+          onSave={(data) =>
+            saveProviderMutation.mutate({ provider: configuringProvider, ...data })
+          }
+          isSaving={saveProviderMutation.isPending}
+        />
+      )}
 
       <div className="max-w-lg rounded-lg border border-red-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-red-700">Remove App</h2>

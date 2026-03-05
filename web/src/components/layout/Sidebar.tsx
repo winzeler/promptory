@@ -5,6 +5,7 @@ const navItems = [
   { path: "/", label: "Dashboard", icon: "grid" },
   { path: "/sync", label: "Sync Status", icon: "refresh" },
   { path: "/settings/api-keys", label: "API Keys", icon: "key" },
+  { path: "/settings/providers", label: "Provider Keys", icon: "lock" },
 ];
 
 export default function Sidebar() {

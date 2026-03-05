@@ -11,6 +11,7 @@ from server.db.database import get_db
 from server.db.queries import prompts as prompt_queries
 from server.db.queries import eval_runs as eval_queries
 from server.services.eval_service import run_evaluation
+from server.services.credential_service import resolve_eval_env_vars, resolve_credential
 
 router = APIRouter(prefix="/api/v1/admin", tags=["eval"])
 
@@ -25,7 +26,7 @@ def _require_user(request: Request) -> dict:
 @router.post("/prompts/{prompt_id}/eval")
 async def run_eval(prompt_id: str, request: Request):
     """Run an evaluation for a prompt against one or more models."""
-    _require_user(request)
+    user = _require_user(request)
     db = await get_db()
     body = await request.json()
 
@@ -40,6 +41,11 @@ async def run_eval(prompt_id: str, request: Request):
     fm = json.loads(prompt.get("front_matter", "{}"))
     eval_config = fm.get("eval")
     prompt_body = prompt.get("body") or fm.get("_body", "")
+
+    # Resolve provider credentials for all models used in this eval
+    env_vars = await resolve_eval_env_vars(
+        db, models, app_id=prompt.get("app_id"), user_id=user["id"],
+    )
 
     # Create eval run records
     runs = []
@@ -59,6 +65,7 @@ async def run_eval(prompt_id: str, request: Request):
             await run_evaluation(
                 db, run_info["id"], prompt_body, run_info["model"],
                 eval_config=eval_config, variables=variables,
+                env_vars=env_vars,
             )
 
     asyncio.create_task(_run_all())
@@ -110,7 +117,7 @@ async def delete_eval_run(run_id: str, request: Request):
 @router.post("/prompts/{prompt_id}/generate-tests")
 async def generate_tests(prompt_id: str, request: Request):
     """Auto-generate test cases for a prompt using PromptPex (LLM-based test generation)."""
-    _require_user(request)
+    user = _require_user(request)
     db = await get_db()
 
     prompt = await prompt_queries.get_prompt(db, prompt_id)
@@ -127,9 +134,13 @@ async def generate_tests(prompt_id: str, request: Request):
     if not prompt_body.strip():
         raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_PROMPT", "message": "Prompt has no body to generate tests from"}})
 
+    # Resolve Google credential for test generation
+    google_cred = await resolve_credential(db, "google", app_id=prompt.get("app_id"), user_id=user["id"])
+    google_api_key = (google_cred or {}).get("api_key")
+
     from server.services.promptpex_service import generate_tests_with_llm, tests_to_eval_config
 
-    tests = await generate_tests_with_llm(prompt_body, prompt_name=prompt.get("name"), model=model)
+    tests = await generate_tests_with_llm(prompt_body, prompt_name=prompt.get("name"), model=model, api_key=google_api_key)
     eval_config = tests_to_eval_config(tests)
 
     return {

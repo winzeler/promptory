@@ -123,17 +123,23 @@ async def generate_tests_with_llm(
     prompt_body: str,
     prompt_name: str | None = None,
     model: str = "gemini-2.0-flash",
+    api_key: str | None = None,
 ) -> list[dict]:
     """Generate test cases using an LLM.
 
     Uses Google Generative AI if available, otherwise returns a helpful error.
     This is the main entry point for the PromptPex integration.
+
+    Args:
+        api_key: Optional Google API key. Falls back to GOOGLE_API_KEY env var.
     """
     user_message = generate_test_prompt(prompt_body, prompt_name)
 
     try:
         import google.generativeai as genai
 
+        if api_key:
+            genai.configure(api_key=api_key)
         gen_model = genai.GenerativeModel(model)
         response = gen_model.generate_content(
             [

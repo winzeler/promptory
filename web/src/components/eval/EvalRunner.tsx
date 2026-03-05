@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const POPULAR_MODELS = [
+const DEFAULT_MODELS = [
   "gemini-2.0-flash",
   "gpt-4o",
   "claude-sonnet-4-5-20250929",
@@ -12,10 +12,13 @@ interface Props {
   onGenerateTests?: () => void;
   isPending: boolean;
   isGenerating?: boolean;
+  allowedModels?: string[] | null;
+  providerStatus?: Record<string, { configured: boolean }> | null;
 }
 
-export default function EvalRunner({ onRun, onGenerateTests, isPending, isGenerating }: Props) {
-  const [selectedModels, setSelectedModels] = useState<string[]>(["gemini-2.0-flash", "gpt-4o"]);
+export default function EvalRunner({ onRun, onGenerateTests, isPending, isGenerating, allowedModels, providerStatus }: Props) {
+  const POPULAR_MODELS = allowedModels?.length ? allowedModels : DEFAULT_MODELS;
+  const [selectedModels, setSelectedModels] = useState<string[]>(POPULAR_MODELS.slice(0, 2));
   const [customModel, setCustomModel] = useState("");
   const [showVars, setShowVars] = useState(false);
   const [varsText, setVarsText] = useState("{}");
@@ -32,6 +35,17 @@ export default function EvalRunner({ onRun, onGenerateTests, isPending, isGenera
       setSelectedModels((prev) => [...prev, trimmed]);
       setCustomModel("");
     }
+  };
+
+  const isModelConfigured = (model: string): boolean => {
+    if (!providerStatus) return true; // No status = assume configured
+    const lower = model.toLowerCase();
+    let provider: string | null = null;
+    if (lower.includes("gpt") || lower.includes("openai") || lower.includes("o1") || lower.includes("o3")) provider = "openai";
+    else if (lower.includes("claude") || lower.includes("anthropic")) provider = "anthropic";
+    else if (lower.includes("gemini") || lower.includes("google")) provider = "google";
+    if (!provider) return true;
+    return providerStatus[provider]?.configured ?? false;
   };
 
   const handleRun = () => {
@@ -76,6 +90,9 @@ export default function EvalRunner({ onRun, onGenerateTests, isPending, isGenera
               }`}
             >
               {model}
+              {selectedModels.includes(model) && !isModelConfigured(model) && (
+                <span className="ml-1 text-yellow-400" title="Provider not configured">!</span>
+              )}
             </button>
           ))}
           {selectedModels
