@@ -53,7 +53,7 @@ export default function Sidebar() {
 
       {/* Version */}
       <div className="border-t border-gray-200 p-4 text-xs text-gray-400">
-        Promptdis v0.1.0
+        Promptdis v{__APP_VERSION__}
       </div>
     </aside>
   );

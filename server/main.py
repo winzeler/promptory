@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from server._version import __version__
 from server.config import settings
 from server.db.database import init_db, close_db, get_db
 from server.auth.sessions import cleanup_expired_sessions
@@ -61,7 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Promptdis",
     description="Git-native LLM prompt management platform",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -90,7 +91,7 @@ app.include_router(eval_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "promptdis", "version": "0.1.0"}
+    return {"status": "ok", "service": "promptdis", "version": __version__}
 
 
 @app.get("/")

@@ -5,11 +5,12 @@
 # ── Build ────────────────────────────────────────────────
 FROM node:20-slim AS build
 
+ARG APP_VERSION=0.0.0
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN echo "$APP_VERSION" > ../VERSION && npm run build
 
 # ── Serve ────────────────────────────────────────────────
 FROM nginx:alpine

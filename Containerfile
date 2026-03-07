@@ -6,7 +6,7 @@
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md VERSION ./
 RUN pip install --no-cache-dir --prefix=/install .
 
 # ── Runtime ──────────────────────────────────────────────
@@ -17,7 +17,8 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Copy application code
+# Copy application code and version file
+COPY VERSION ./
 COPY server/ server/
 
 # Non-root user + data directory for SQLite

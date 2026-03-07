@@ -1,17 +1,24 @@
 {
   "name": "@promptdis/client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript SDK for Promptdis — Git-native LLM prompt management",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": ["llm", "prompts", "prompt-management", "sdk"],
+  "keywords": [
+    "llm",
+    "prompts",
+    "prompt-management",
+    "sdk"
+  ],
   "license": "MIT",
   "devDependencies": {
     "typescript": "^5.4.0",

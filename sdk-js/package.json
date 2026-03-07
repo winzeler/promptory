@@ -1,6 +1,6 @@
 {
   "name": "@promptdis/client-js",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "JavaScript SDK for Promptdis — Git-native LLM prompt management",
   "type": "module",
   "main": "./cjs/index.cjs",
@@ -11,7 +11,12 @@
       "require": "./cjs/index.cjs"
     }
   },
-  "files": ["src", "cjs", "README.md", "LICENSE"],
+  "files": [
+    "src",
+    "cjs",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },
@@ -19,7 +24,12 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": ["llm", "prompts", "prompt-management", "sdk"],
+  "keywords": [
+    "llm",
+    "prompts",
+    "prompt-management",
+    "sdk"
+  ],
   "license": "MIT",
   "devDependencies": {
     "vitest": "^2.0.0"
