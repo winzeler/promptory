@@ -1,0 +1,240 @@
+
+ ▐▛███▜▌   Claude Code v2.1.63
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Plan: Remove prompt-evals.yml workflow, keep as template                     │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ The prompt-evals.yml workflow runs in the platform repo but prompt .md files │
+│  live in users' connected GitHub repos, so the workflow never evaluates real │
+│  prompts here. It triggers on all .md changes (including docs like           │
+│ RUNBOOK.md, LINTER_FIX_PLAN_*.md) causing wasted CI time and noisy PR        │
+│ comments. The workflow should be removed from .github/workflows/ and         │
+│ preserved as a deployable template.                                          │
+│                                                                              │
+│ Changes                                                                      │
+│                                                                              │
+│ 1. Move the workflow to a templates directory                                │
+│                                                                              │
+│ - Create templates/prompt-evals.yml (a new directory)                        │
+│ - Copy the current .github/workflows/prompt-evals.yml content there (with    │
+│ the import fix and fs.existsSync guard already applied)                      │
+│ - Add a comment header explaining it's a template for content repos          │
+│                                                                              │
+│ 2. Delete the active workflow                                                │
+│                                                                              │
+│ - Delete .github/workflows/prompt-evals.yml                                  │
+│                                                                              │
+│ 3. Keep server/services/eval_service.py intact                               │
+│                                                                              │
+│ - The eval service is still used by the web UI's eval API endpoint           │
+│ (server/api/eval.py), so generate_promptfoo_config stays                     │
+│                                                                              │
+│ Files                                                                        │
+│                                                                              │
+│ ┌────────┬────────────────────────────────────┐                              │
+│ │ Action │                File                │                              │
+│ ├────────┼────────────────────────────────────┤                              │
+│ │ Create │ templates/prompt-evals.yml         │                              │
+│ ├────────┼────────────────────────────────────┤                              │
+│ │ Delete │ .github/workflows/prompt-evals.yml │                              │
+│ └────────┴────────────────────────────────────┘                              │
+│                                                                              │
+│ Verification                                                                 │
+│                                                                              │
+│ - ls .github/workflows/ — should show only ci.yml and publish.yml            │
+│ - ls templates/ — should show prompt-evals.yml                               │
+│ - python -c "from server.services.eval_service import                        │
+│ generate_promptfoo_config; print('OK')" — eval service still importable      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+⏺ Let me read the current workflow file first.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I'll create the template and delete the workflow.
+
+⏺ Bash(mkdir -p /Users/lorenwinzeler/src/futureself/prompt-mgmt/templates)
+  ⎿  Done
+
+⏺ Write(templates/prompt-evals.yml)
+  ⎿  Wrote 232 lines to templates/prompt-evals.yml
+       1 # Template: Prompt Evaluations Workflow
+       2 #
+       3 # Copy this file into .github/workflows/ of your prompt CONTENT 
+         repo
+       4 # (the repo that contains your .md prompt files).
+       5 #
+       6 # This workflow runs promptfoo evaluations on changed prompt fil
+         es
+       7 # when a pull request is opened or updated, and posts results as
+          a
+       8 # PR comment.
+       9 #
+      10 # Prerequisites:
+     … +222 lines (ctrl+o to expand)
+
+⏺ Bash(rm /Users/lorenwinzeler/src/futureself/prompt-mgmt/.github/workflows/prom
+      pt-evals.yml)
+  ⎿  Done
+
+⏺ Now let me verify everything looks correct.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Bash(python -c "from server.services.eval_service import
+      generate_promptfoo_config; print('OK')")
+  ⎿  OK
+
+⏺ All three verifications pass:
+
+  - .github/workflows/ contains only ci.yml and publish.yml
+  - templates/ contains prompt-evals.yml with a comment header explaining it's a
+   template for content repos
+  - eval_service is still importable — the web UI eval endpoint is unaffected
+
+✻ Sautéed for 1m 3s
+
+❯ /export 
+  ⎿  Conversation exported to:
+     2026-03-02-213223-implement-the-following-plan_REMOVE_EVALS.txt
+
+❯ /plan 
+  ⎿  Enabled plan mode
+
+❯ Rename the buttons "Import .prompty" to "Import" and "Export .prompty" to 
+   "Export"                                                                 
+
+⏺ Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+⏺ Simple two-line change — no plan needed.
+
+⏺ Update(web/src/pages/PromptEditorPage.tsx)
+  ⎿  Added 1 line, removed 1 line
+      228              onClick={handleExportPrompty}
+      229              className="rounded border border-gray-300 px-3 py-
+           1.5 text-sm hover:bg-gray-50"
+      230            >
+      231 -            Export .prompty                                   
+      231 +            Export                                            
+      232            </button>
+      233            <span className="text-xs text-gray-400" title="Cmd+S
+            to save">
+      234              {navigator.platform.includes("Mac") ? "\u2318" : "
+           Ctrl"}+S
+
+⏺ Update(web/src/pages/PromptBrowserPage.tsx)
+  ⎿  Added 1 line, removed 1 line
+      132              onClick={() => fileInputRef.current?.click()}
+      133              className="rounded border border-gray-300 px-3 py-
+           1.5 text-sm hover:bg-gray-50"
+      134            >
+      135 -            Import .prompty                                   
+      135 +            Import                                            
+      136            </button>
+      137            <input
+      138              ref={fileInputRef}
+
+⏺ Done. Renamed:
+  - PromptBrowserPage.tsx:135 — "Import .prompty" → "Import"
+  - PromptEditorPage.tsx:231 — "Export .prompty" → "Export"
+
+❯ I'm ready to deploy on AWS Lambda.  What are the steps?                   
+                                                                            
+  (.venv) lorenwinzeler@Lorens-MacBook-Pro prompt-mgmt %                    
+  ./scripts/deploy-serverless.sh --guided                                   
+  ==> Building SAM package...                                               
+  ./scripts/deploy-serverless.sh: line 12: sam: command not found           
+
+⏺ You need to install the AWS SAM CLI first. Let me check your deploy script and
+   serverless config to give you the full picture.
+
+⏺ Searched for 2 patterns, read 3 files (ctrl+o to expand)
+
+⏺ Your infra is well set up. Here are the steps:
+
+  1. Install AWS SAM CLI
+
+  brew install aws-sam-cli
+
+  Verify with sam --version.
+
+  2. Ensure AWS credentials are configured
+
+  aws sts get-caller-identity
+
+  If that fails, run aws configure or set AWS_PROFILE for the account you want
+  to deploy to.
+
+  3. Have your secrets ready
+
+  The --guided deploy will prompt you for these parameters:
+
+  ┌────────────────────┬─────────────────────────────────────────────────────┐
+  │     Parameter      │                   What to provide                   │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ GitHubClientId     │ Your GitHub OAuth App client ID                     │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ GitHubClientSecret │ Your GitHub OAuth App client secret                 │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ AppSecretKey       │ A random string for session signing (e.g. openssl   │
+  │                    │ rand -hex 32)                                       │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ ElevenLabsApiKey   │ Optional — leave blank if not using TTS             │
+  └────────────────────┴─────────────────────────────────────────────────────┘
+
+  The rest (Stage, VpcCidr, etc.) have sensible defaults in your samconfig.toml.
+
+  4. Build and deploy
+
+  cd infra
+  sam build
+  sam deploy --guided
+
+  --guided will walk you through each parameter and save your choices to
+  samconfig.toml for future deploys. After the first guided deploy, subsequent
+  deploys are just sam build && sam deploy.
+
+  5. After deploy — upload the web UI
+
+  The stack creates an S3 bucket + CloudFront distribution for the frontend.
+  You'll need to:
+
+  # Build the frontend
+  cd web && npm run build
+
+  # Grab outputs from the stack
+  sam list stack-outputs --stack-name promptdis-dev
+
+  # Upload to the WebBucketName from outputs
+  aws s3 sync dist/ s3://<WebBucketName> --delete
+
+  # Invalidate CloudFront cache
+  aws cloudfront create-invalidation --distribution-id <WebDistributionId>
+  --paths "/*"
+
+  6. Update FrontendUrl and CorsOrigins
+
+  After the first deploy, grab the WebDistributionUrl from the stack outputs and
+   redeploy with:
+
+  sam deploy --parameter-overrides \
+    Stage=dev \
+    FrontendUrl=https://<cloudfront-domain> \
+    CorsOrigins=https://<cloudfront-domain>
+
+  One thing to note
+
+  Your template sets ReservedConcurrentExecutions: 1 on the API Lambda for
+  SQLite single-writer safety. This means only one Lambda invocation at a time —
+   fine for dev, but you'll want to revisit that for production traffic.
+
+❯ pwd 
+
+⏺ Your current working directory is
+  /Users/lorenwinzeler/src/futureself/prompt-mgmt.
