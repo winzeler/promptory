@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "../api/client";
+import { apiFetch, API_BASE } from "../api/client";
 import { App } from "../api/prompts";
 import ProviderConfigCard, {
   type ProviderStatus,
@@ -130,7 +130,7 @@ export default function AppSettingsPage() {
         <div className="border-t border-gray-200 pt-4">
           <h3 className="text-sm font-medium text-gray-700">Webhook URL</h3>
           <p className="mt-1 font-mono text-xs text-gray-500 break-all">
-            {window.location.origin}/api/v1/webhooks/github
+            {API_BASE}/api/v1/webhooks/github
           </p>
           <p className="mt-1 text-xs text-gray-400">
             Add this as a webhook in your GitHub repo settings. Select "push" events.
