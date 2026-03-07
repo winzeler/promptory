@@ -20,6 +20,11 @@ web/dist/
 .env.local
 .env.*.local
 
+# SAM (contains secrets in parameter_overrides)
+infra/samconfig.toml
+infra/secrets.toml
+infra/.aws-sam/
+
 # SQLite data
 data/*.db
 data/*.db-journal

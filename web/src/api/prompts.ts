@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, API_BASE } from "./client";
 
 export interface PromptListItem {
   id: string;
@@ -172,7 +172,6 @@ export async function previewTTS(
   promptId: string,
   data: { variables: Record<string, unknown>; tts_config?: Record<string, unknown> }
 ): Promise<Blob> {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
   const resp = await fetch(`${API_BASE}/api/v1/admin/prompts/${promptId}/tts-preview`, {
     method: "POST",
     credentials: "include",
@@ -280,7 +279,6 @@ export async function batchDeletePrompts(data: {
 // ── Prompty import/export ──
 
 export async function exportPrompty(promptId: string): Promise<string> {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
   const resp = await fetch(`${API_BASE}/api/v1/admin/prompts/${promptId}/export/prompty`, {
     credentials: "include",
   });

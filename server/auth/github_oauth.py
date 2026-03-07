@@ -135,13 +135,15 @@ async def github_callback(
 
     # Redirect to frontend with session cookie
     redirect = RedirectResponse(f"{settings.frontend_url}/", status_code=302)
+    is_cross_site = settings.cookie_domain is not None
     redirect.set_cookie(
         key="promptdis_session",
         value=session_id,
         httponly=True,
-        samesite="lax",
+        samesite="none" if is_cross_site else "lax",
         max_age=86400,  # 24 hours
-        secure=not settings.app_base_url.startswith("http://localhost"),
+        secure=is_cross_site,
+        domain=settings.cookie_domain,
     )
     return redirect
 
@@ -172,5 +174,5 @@ async def logout(request: Request, response: Response):
         db = await get_db()
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         await db.commit()
-    response.delete_cookie("promptdis_session")
+    response.delete_cookie("promptdis_session", domain=settings.cookie_domain)
     return {"ok": True}

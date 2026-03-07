@@ -8,18 +8,22 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # ── Parse args ──────────────────────────────────────────────────────────────
 STACK_NAME=""
+REGION="${AWS_DEFAULT_REGION:-us-east-2}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --stack) STACK_NAME="$2"; shift 2 ;;
-        *) echo "Usage: $0 --stack <stack-name>"; exit 1 ;;
+        --region) REGION="$2"; shift 2 ;;
+        *) echo "Usage: $0 --stack <stack-name> [--region <region>]"; exit 1 ;;
     esac
 done
 
 if [[ -z "$STACK_NAME" ]]; then
     echo "Error: --stack <stack-name> is required"
-    echo "Usage: $0 --stack promptdis-dev"
+    echo "Usage: $0 --stack promptdis-dev [--region us-east-2]"
     exit 1
 fi
+
+export AWS_DEFAULT_REGION="$REGION"
 
 # ── Read stack outputs ──────────────────────────────────────────────────────
 echo "==> Reading stack outputs from $STACK_NAME..."
@@ -47,9 +51,16 @@ echo "  API URL:         $API_URL"
 echo ""
 echo "==> Building web UI..."
 cd "$REPO_ROOT/web"
-export VITE_API_BASE_URL="$API_URL"
 npm ci
 npm run build
+
+# ── Inject runtime config ─────────────────────────────────────────────────
+echo "==> Writing runtime config.js with API_BASE_URL=$API_URL..."
+cat > dist/config.js <<JSEOF
+window.__PROMPTDIS_CONFIG__ = {
+  API_BASE_URL: "$API_URL",
+};
+JSEOF
 
 # ── Sync to S3 ──────────────────────────────────────────────────────────────
 echo ""

@@ -52,23 +52,56 @@ Parameters:
     Default: "http://localhost:5173"
     Description: Comma-separated allowed CORS origins
 
-  ElevenLabsApiKey:
+  AppBaseUrl:
     Type: String
     Default: ""
+    Description: Base URL for the API (e.g. https://api.promptdis.com). Set after first deploy if using raw API Gateway URL.
+
+  DomainName:
+    Type: String
+    Default: ""
+    Description: Custom domain for the web UI (e.g. app.promptdis.com). Leave blank to skip.
+
+  AcmCertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN (must be in us-east-1) for the web UI custom domain.
+
+  ApiDomainName:
+    Type: String
+    Default: ""
+    Description: Custom domain for the API (e.g. api.promptdis.com). Leave blank to skip.
+
+  ApiAcmCertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN (in the deploy region) for the API custom domain.
+
+  ElevenLabsApiKey:
+    Type: String
+    Default: "none"
     NoEcho: true
     Description: ElevenLabs API key (optional, for TTS preview)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Conditions
+# ─────────────────────────────────────────────────────────────────────────────
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
+  HasApiDomain: !Not [!Equals [!Ref ApiDomainName, ""]]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Globals
 # ─────────────────────────────────────────────────────────────────────────────
 Globals:
   Function:
-    Runtime: python3.11
+    Runtime: python3.12
     Timeout: 30
     MemorySize: 512
     Environment:
       Variables:
         DEPLOYMENT_MODE: lambda
+        STAGE: !Ref Stage
         DATABASE_PATH: /mnt/efs/data/promptdis.db
         DYNAMODB_STATE_TABLE: !Ref OAuthStateTable
         S3_TTS_BUCKET: !Ref TTSCacheBucket
@@ -77,6 +110,7 @@ Globals:
         APP_SECRET_KEY: !Ref AppSecretKey
         FRONTEND_URL: !Ref FrontendUrl
         CORS_ORIGINS: !Ref CorsOrigins
+        APP_BASE_URL: !Ref AppBaseUrl
         ELEVENLABS_API_KEY: !Ref ElevenLabsApiKey
         LOG_LEVEL: info
 
@@ -115,6 +149,97 @@ Resources:
           Value: !Sub "promptdis-${Stage}-subnet-b"
 
   # ───────────────────────────────────────────────────────────────────────────
+  # Networking — Internet access for Lambda (NAT Gateway)
+  # ───────────────────────────────────────────────────────────────────────────
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.3.0/24"
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "promptdis-${Stage}-public-subnet"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "promptdis-${Stage}-igw"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "promptdis-${Stage}-public-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub "promptdis-${Stage}-nat"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "promptdis-${Stage}-private-rt"
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ───────────────────────────────────────────────────────────────────────────
   # EFS (SQLite storage — persists across Lambda invocations)
   # ───────────────────────────────────────────────────────────────────────────
   FileSystem:
@@ -123,7 +248,7 @@ Resources:
       Encrypted: true
       PerformanceMode: generalPurpose
       ThroughputMode: bursting
-      Tags:
+      FileSystemTags:
         - Key: Name
           Value: !Sub "promptdis-${Stage}-efs"
 
@@ -257,6 +382,16 @@ Resources:
           - ErrorCode: 404
             ResponseCode: 200
             ResponsePagePath: /index.html
+        Aliases: !If
+          - HasCustomDomain
+          - [!Ref DomainName]
+          - !Ref "AWS::NoValue"
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - !Ref "AWS::NoValue"
         Enabled: true
         HttpVersion: http2and3
         Comment: !Sub "Promptdis Web UI (${Stage})"
@@ -266,13 +401,18 @@ Resources:
   # ───────────────────────────────────────────────────────────────────────────
   ApiFunction:
     Type: AWS::Serverless::Function
+    DependsOn:
+      - MountTargetA
+      - MountTargetB
+    Metadata:
+      BuildMethod: makefile
     Properties:
       FunctionName: !Sub "promptdis-${Stage}-api"
       Handler: server.lambda_handler.handler
       CodeUri: ..
       MemorySize: 512
       Timeout: 30
-      ReservedConcurrentExecutions: 1  # SQLite single-writer safety
+      # ReservedConcurrentExecutions: 1  # SQLite single-writer — requires concurrency quota increase
       VpcConfig:
         SubnetIds:
           - !Ref PrivateSubnetA
@@ -282,9 +422,6 @@ Resources:
       FileSystemConfigs:
         - Arn: !GetAtt AccessPoint.Arn
           LocalMountPath: /mnt/efs
-      Environment:
-        Variables:
-          APP_BASE_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OAuthStateTable
@@ -301,6 +438,11 @@ Resources:
   # ───────────────────────────────────────────────────────────────────────────
   CleanupFunction:
     Type: AWS::Serverless::Function
+    DependsOn:
+      - MountTargetA
+      - MountTargetB
+    Metadata:
+      BuildMethod: makefile
     Properties:
       FunctionName: !Sub "promptdis-${Stage}-cleanup"
       Handler: scripts.cleanup_sessions_handler.handler
@@ -330,22 +472,30 @@ Resources:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref Stage
-      CorsConfiguration:
-        AllowOrigins:
-          - "http://localhost:5173"
-        AllowMethods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - PATCH
-          - OPTIONS
-        AllowHeaders:
-          - "*"
-        AllowCredentials: true
       DefaultRouteSettings:
         ThrottlingBurstLimit: 50
         ThrottlingRateLimit: 100
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # API Gateway — Custom Domain (api.promptdis.com)
+  # ───────────────────────────────────────────────────────────────────────────
+  ApiCustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasApiDomain
+    Properties:
+      DomainName: !Ref ApiDomainName
+      DomainNameConfigurations:
+        - EndpointType: REGIONAL
+          CertificateArn: !Ref ApiAcmCertificateArn
+
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasApiDomain
+    DependsOn: ApiCustomDomain
+    Properties:
+      ApiId: !Ref HttpApi
+      DomainName: !Ref ApiDomainName
+      Stage: !Ref Stage
 
   # ───────────────────────────────────────────────────────────────────────────
   # Security Group — Lambda functions
@@ -416,7 +566,15 @@ Resources:
 Outputs:
   ApiUrl:
     Description: API Gateway endpoint URL
-    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Value: !If
+      - HasApiDomain
+      - !Sub "https://${ApiDomainName}"
+      - !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+
+  ApiDomainTarget:
+    Condition: HasApiDomain
+    Description: CNAME target for api custom domain (use in Cloudflare DNS)
+    Value: !GetAtt ApiCustomDomain.RegionalDomainName
 
   WebDistributionUrl:
     Description: CloudFront distribution URL for web UI
