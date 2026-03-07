@@ -53,10 +53,11 @@ jobs:
           fi
       - name: Build Web container
         run: |
+          APP_VERSION=$(cat VERSION | tr -d '[:space:]')
           if command -v podman &>/dev/null; then
-            podman build -t promptdis-web -f web/Containerfile web/
+            podman build -t promptdis-web --build-arg APP_VERSION="$APP_VERSION" -f web/Containerfile web/
           else
-            docker build -t promptdis-web -f web/Containerfile web/
+            docker build -t promptdis-web --build-arg APP_VERSION="$APP_VERSION" -f web/Containerfile web/
           fi
 
   auto-tag:
