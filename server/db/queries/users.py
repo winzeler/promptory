@@ -52,12 +52,28 @@ async def upsert_user(
 
 
 async def upsert_org_membership(
-    db: aiosqlite.Connection, user_id: str, org_id: str, role: str = "member"
+    db: aiosqlite.Connection,
+    user_id: str,
+    org_id: str,
+    role: str = "member",
+    access_status: str = "authorized",
 ) -> None:
     await db.execute(
-        """INSERT INTO org_memberships (user_id, org_id, role)
-           VALUES (?, ?, ?)
-           ON CONFLICT(user_id, org_id) DO UPDATE SET role=excluded.role""",
-        (user_id, org_id, role),
+        """INSERT INTO org_memberships (user_id, org_id, role, access_status)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id, org_id) DO UPDATE SET role=excluded.role, access_status=excluded.access_status""",
+        (user_id, org_id, role, access_status),
     )
     await db.commit()
+
+
+async def delete_org_membership(
+    db: aiosqlite.Connection, user_id: str, org_id: str
+) -> bool:
+    """Remove a user's membership in an org. Returns True if a row was deleted."""
+    cursor = await db.execute(
+        "DELETE FROM org_memberships WHERE user_id = ? AND org_id = ?",
+        (user_id, org_id),
+    )
+    await db.commit()
+    return cursor.rowcount > 0

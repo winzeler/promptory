@@ -76,6 +76,17 @@ async def test_list_orgs(admin_client):
     assert data["items"][0]["id"] == ORG_ID
 
 
+@pytest.mark.asyncio
+async def test_list_orgs_includes_access_status(admin_client):
+    """Verify access_status field is present in org list response items."""
+    resp = await admin_client.get("/api/v1/admin/orgs")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["items"]) >= 1
+    for item in data["items"]:
+        assert "access_status" in item
+
+
 # ---------------------------------------------------------------------------
 # Application endpoints
 # ---------------------------------------------------------------------------

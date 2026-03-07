@@ -13,7 +13,7 @@ async def list_orgs(db: aiosqlite.Connection) -> list[dict]:
 
 async def list_orgs_for_user(db: aiosqlite.Connection, user_id: str) -> list[dict]:
     sql = """
-        SELECT o.* FROM organizations o
+        SELECT o.*, om.access_status FROM organizations o
         JOIN org_memberships om ON om.org_id = o.id
         WHERE om.user_id = ?
         ORDER BY o.display_name

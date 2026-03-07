@@ -349,6 +349,47 @@ class TestBulkCommit:
 # close
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# list_org_memberships
+# ---------------------------------------------------------------------------
+
+class TestListOrgMemberships:
+    def test_list_org_memberships(self, gh_service):
+        m1 = MagicMock()
+        m1.organization.login = "acme-corp"
+        m1.organization.avatar_url = "https://avatar.test/acme"
+        m1.state = "active"
+        m1.role = "admin"
+
+        m2 = MagicMock()
+        m2.organization.login = "beta-inc"
+        m2.organization.avatar_url = "https://avatar.test/beta"
+        m2.state = "pending"
+        m2.role = "member"
+
+        gh_service.gh.get_user.return_value.get_organization_memberships.return_value = [m1, m2]
+
+        result = gh_service.list_org_memberships()
+        assert len(result) == 2
+        assert result[0]["login"] == "acme-corp"
+        assert result[0]["avatar_url"] == "https://avatar.test/acme"
+        assert result[0]["state"] == "active"
+        assert result[0]["role"] == "admin"
+        assert result[1]["login"] == "beta-inc"
+        assert result[1]["state"] == "pending"
+        assert result[1]["role"] == "member"
+
+    def test_list_org_memberships_empty(self, gh_service):
+        gh_service.gh.get_user.return_value.get_organization_memberships.return_value = []
+
+        result = gh_service.list_org_memberships()
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# close
+# ---------------------------------------------------------------------------
+
 class TestClose:
     def test_close_calls_github_close(self, gh_service):
         gh_service.close()

@@ -14,6 +14,7 @@ from server.db.queries import applications as app_queries
 from server.db.queries import prompts as prompt_queries
 from server.db.queries import analytics as analytics_queries
 from server.db.queries import users as user_queries
+from server.config import settings
 from server.services.github_service import GitHubService
 from server.services.prompt_service import (
     create_prompt,
@@ -83,6 +84,146 @@ async def create_organization(request: Request):
     await user_queries.upsert_org_membership(db, user["id"], org_id, role="admin")
     org = await org_queries.get_org(db, org_id)
     return org
+
+
+@router.delete("/orgs/{org_id}")
+async def remove_organization(org_id: str, request: Request):
+    """Remove an org from the current user's list (deletes membership, not the org)."""
+    user = _require_user(request)
+    db = await get_db()
+    deleted = await user_queries.delete_org_membership(db, user["id"], org_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Org membership not found"}})
+    return {"ok": True}
+
+
+@router.post("/orgs/refresh")
+async def refresh_orgs(request: Request):
+    """Re-sync orgs from GitHub, detecting restricted orgs via membership diffing."""
+    user = _require_user(request)
+    db = await get_db()
+    gh = _get_github_for_user(user)
+
+    try:
+        # Authorized orgs (OAuth app has access)
+        authorized = gh.list_orgs()
+        authorized_logins = {o["login"] for o in authorized}
+
+        # All memberships (includes restricted orgs)
+        try:
+            memberships = gh.list_org_memberships()
+        except Exception:
+            # Fallback if memberships endpoint fails — just use authorized list
+            memberships = [{"login": o["login"], "avatar_url": o["avatar_url"], "state": "active", "role": "member"} for o in authorized]
+
+        gh_user = gh.gh.get_user()
+        personal = {"login": gh_user.login, "avatar_url": gh_user.avatar_url}
+    except Exception as exc:
+        # Detect expired/revoked GitHub token (PyGithub raises GithubException with 401)
+        exc_str = str(exc)
+        if "401" in exc_str or "Bad credentials" in exc_str:
+            raise HTTPException(
+                status_code=401,
+                detail={"error": {"code": "GITHUB_TOKEN_EXPIRED", "message": "Your GitHub token has expired. Please log out and log in again."}},
+            )
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"code": "GITHUB_ERROR", "message": f"GitHub API error: {exc_str}"}},
+        )
+    finally:
+        gh.close()
+
+    # Sync authorized orgs to DB
+    for org_info in authorized:
+        org_id = await org_queries.upsert_org(
+            db,
+            github_owner=org_info["login"],
+            display_name=org_info["login"],
+            avatar_url=org_info.get("avatar_url"),
+        )
+        await user_queries.upsert_org_membership(
+            db, user["id"], org_id, role="member", access_status="authorized",
+        )
+
+    # Sync restricted orgs to DB
+    membership_logins = set()
+    for m in memberships:
+        login = m["login"]
+        membership_logins.add(login)
+        if login not in authorized_logins:
+            org_id = await org_queries.upsert_org(
+                db,
+                github_owner=login,
+                display_name=login,
+                avatar_url=m.get("avatar_url"),
+            )
+            await user_queries.upsert_org_membership(
+                db, user["id"], org_id,
+                role=m.get("role", "member"),
+                access_status="restricted",
+            )
+
+    # Detect revoked access: existing DB orgs no longer in authorized or membership sets
+    all_known_logins = authorized_logins | membership_logins | {personal["login"]}
+    existing_orgs = await org_queries.list_orgs_for_user(db, user["id"])
+    for org in existing_orgs:
+        if org["github_owner"] not in all_known_logins:
+            await user_queries.upsert_org_membership(
+                db, user["id"], org["id"],
+                role="member",
+                access_status="restricted",
+            )
+
+    # Ensure personal account org exists
+    personal_org_id = await org_queries.upsert_org(
+        db,
+        github_owner=personal["login"],
+        display_name=personal["login"],
+        avatar_url=personal.get("avatar_url"),
+    )
+    await user_queries.upsert_org_membership(
+        db, user["id"], personal_org_id, role="admin", access_status="authorized",
+    )
+
+    # Build annotated response
+    manage_url = f"https://github.com/settings/connections/applications/{settings.github_client_id}"
+    items = []
+
+    # Personal account
+    items.append({
+        "login": personal["login"],
+        "avatar_url": personal.get("avatar_url"),
+        "status": "authorized",
+        "synced": True,
+    })
+
+    # All memberships with status
+    for m in memberships:
+        login = m["login"]
+        if login == personal["login"]:
+            continue
+        is_authorized = login in authorized_logins
+        items.append({
+            "login": login,
+            "avatar_url": m.get("avatar_url"),
+            "status": "authorized" if is_authorized else "restricted",
+            "role": m.get("role"),
+            "synced": is_authorized,
+            "request_url": manage_url if not is_authorized else None,
+        })
+
+    return {"items": items}
+
+
+@router.get("/github/oauth-info")
+async def github_oauth_info(request: Request):
+    """Return OAuth app info for client-side manage/request links."""
+    _require_user(request)
+    return {
+        "client_id": settings.github_client_id,
+        "manage_url": f"https://github.com/settings/connections/applications/{settings.github_client_id}",
+        "scopes": ["repo", "read:user", "read:org"],
+    }
 
 
 # ── Applications ──

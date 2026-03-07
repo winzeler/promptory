@@ -27,7 +27,7 @@ Operational guide for deploying, administering, and troubleshooting **Promptdis*
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| Python | 3.11+ | Backend runtime |
+| Python | 3.12+ | Backend runtime |
 | Node.js | 20+ | Frontend build, TypeScript SDK |
 | Docker or Podman | Latest | Container deployment |
 | AWS CLI | v2 | Serverless deployment |
@@ -244,14 +244,17 @@ This runs `sam build` then `sam deploy --guided`, which prompts for:
 #### Deploy Web UI to S3 + CloudFront
 
 ```bash
-./scripts/deploy-web.sh --stack promptdis-dev
+./scripts/deploy-web.sh --stack promptdis-dev --region us-east-2
 ```
 
 This script:
 1. Reads stack outputs (S3 bucket, CloudFront distribution ID, API URL)
-2. Builds the web UI with `VITE_API_BASE_URL` set to the API Gateway URL
-3. Syncs `dist/` to S3
-4. Invalidates CloudFront cache
+2. Builds the web UI with `npm ci && npm run build`
+3. Writes runtime `dist/config.js` with `window.__PROMPTDIS_CONFIG__ = { API_BASE_URL: "..." }`
+4. Syncs `dist/` to S3
+5. Invalidates CloudFront cache
+
+The `--region` flag defaults to `us-east-2`.
 
 #### Post-Deploy: Set Frontend URL
 
@@ -661,7 +664,7 @@ aws logs tail /aws/lambda/promptdis-dev-api --follow --filter-pattern "oauth"
 ### **"database is locked" errors**
 
 - In container mode: ensure only one server instance writes to the database. WAL mode supports concurrent reads but only one writer.
-- In Lambda mode: `ReservedConcurrentExecutions` is set to `1` in `template.yaml` to prevent concurrent writes. If you increased this, reduce it back to 1.
+- In Lambda mode: `ReservedConcurrentExecutions` is currently commented out (requires AWS quota increase). `PRAGMA busy_timeout=5000` handles brief contention. Optionally request a quota increase and uncomment it.
 - Check if a `sqlite3` CLI session is holding a lock: close it.
 
 ```bash
@@ -687,7 +690,7 @@ SELECT * FROM webhook_deliveries ORDER BY processed_at DESC LIMIT 5;
 ### **Cold start slow on Lambda**
 
 - Default memory: 512 MB. Increasing to 1024 MB gives proportionally more CPU and reduces cold start.
-- Python 3.11 cold starts are typically 3-5 seconds with EFS mount.
+- Python 3.12 cold starts are typically 3-5 seconds with EFS mount.
 - The EFS mount adds ~1-2 seconds on cold start. This is unavoidable.
 - Consider provisioned concurrency for latency-sensitive workloads:
 
@@ -697,6 +700,34 @@ aws lambda put-provisioned-concurrency-config \
   --qualifier live \
   --provisioned-concurrent-executions 1
 ```
+
+### **`pydantic_core` or `cryptography` import error on Lambda**
+
+- Lambda package contains macOS/ARM binaries instead of Linux x86_64 binaries.
+- Ensure `requirements.txt` exists (generated from `uv pip compile pyproject.toml -o requirements.txt`).
+- Verify both Lambda functions have `Metadata: BuildMethod: makefile` in `template.yaml`.
+- The Makefile uses `--platform manylinux2014_x86_64 --only-binary=:all:` for cross-compilation.
+- Run `sam build` again and redeploy.
+
+### **Lambda can't reach GitHub API / "Service Unavailable"**
+
+- Lambda in VPC has no internet access without a NAT Gateway.
+- Verify the NAT Gateway exists in the public subnet and its status is "Available".
+- Check that private subnet route tables have `0.0.0.0/0 → NatGateway` route.
+- Verify the Internet Gateway is attached to the VPC.
+
+### **Session cookie not sent (cross-domain)**
+
+- When API and web UI are on different subdomains (e.g., `api.X.com` → `app.X.com`), cookies require `SameSite=None; Secure; Domain=.X.com`.
+- Verify `FRONTEND_URL` is set correctly — the `cookie_domain` property computes the domain from it.
+- CORS must allow credentials — `CORS_ORIGINS` must include the exact web UI origin.
+- CORS is handled by FastAPI middleware (not API Gateway `CorsConfiguration`, which was removed to avoid conflicts).
+
+### **"Not Found" 404 on all Lambda API routes**
+
+- API Gateway HTTP API v2 includes the stage in the path (e.g., `/dev/api/v1/prompts`).
+- Mangum must strip the stage prefix via `api_gateway_base_path`.
+- Verify `STAGE` environment variable is set in Lambda configuration.
 
 ### **Prompts not appearing after sync**
 
@@ -917,7 +948,7 @@ See the [full API reference](README.md#api-overview) for all admin endpoints.
 | **Scaling** | Manual (replicas) | Automatic (concurrency=1 for SQLite safety) |
 | **Cold start** | None | ~3-5 sec (Python + EFS mount) |
 | **Cost (low traffic)** | Fixed (server always running) | Near-zero (pay per request) |
-| **CORS** | FastAPI middleware | API Gateway + FastAPI middleware |
+| **CORS** | FastAPI middleware | FastAPI middleware (API Gateway CORS removed to avoid conflicts) |
 
 ---
 

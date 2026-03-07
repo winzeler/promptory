@@ -22,6 +22,9 @@ import {
   createApp,
   fetchGitHubOrgs,
   fetchGitHubRepos,
+  refreshOrgs,
+  removeOrg,
+  fetchOAuthInfo,
 } from "../api/prompts";
 
 export function useOrgs() {
@@ -57,6 +60,30 @@ export function useGitHubOrgs() {
     queryKey: ["github-orgs"],
     queryFn: fetchGitHubOrgs,
     staleTime: 60_000,
+  });
+}
+
+export function useRefreshOrgs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: refreshOrgs,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orgs"] }),
+  });
+}
+
+export function useRemoveOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: removeOrg,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orgs"] }),
+  });
+}
+
+export function useOAuthInfo() {
+  return useQuery({
+    queryKey: ["oauth-info"],
+    queryFn: fetchOAuthInfo,
+    staleTime: 300_000,
   });
 }
 

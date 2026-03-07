@@ -95,9 +95,37 @@ export interface GitHubRepo {
   description: string | null;
 }
 
+export interface RefreshedOrg {
+  login: string;
+  avatar_url: string | null;
+  status: "authorized" | "restricted";
+  role?: string;
+  synced: boolean;
+  request_url?: string | null;
+}
+
+export interface OAuthInfo {
+  client_id: string;
+  manage_url: string;
+  scopes: string[];
+}
+
 export async function fetchGitHubOrgs(): Promise<GitHubOrg[]> {
   const resp = await apiFetch<{ items: GitHubOrg[] }>("/api/v1/admin/github/orgs");
   return resp.items;
+}
+
+export async function refreshOrgs(): Promise<RefreshedOrg[]> {
+  const resp = await apiFetch<{ items: RefreshedOrg[] }>("/api/v1/admin/orgs/refresh", { method: "POST" });
+  return resp.items;
+}
+
+export async function removeOrg(orgId: string): Promise<void> {
+  await apiFetch(`/api/v1/admin/orgs/${orgId}`, { method: "DELETE" });
+}
+
+export async function fetchOAuthInfo(): Promise<OAuthInfo> {
+  return apiFetch<OAuthInfo>("/api/v1/admin/github/oauth-info");
 }
 
 export async function fetchGitHubRepos(org: string): Promise<GitHubRepo[]> {
