@@ -46,6 +46,22 @@ class GitHubService:
             })
         return orgs
 
+    def list_org_memberships(self) -> list[dict]:
+        """List all org memberships including restricted orgs.
+
+        Uses GET /user/memberships/orgs which returns orgs regardless of
+        whether the OAuth app has been granted access.
+        """
+        memberships = []
+        for m in self.gh.get_user().get_organization_memberships():
+            memberships.append({
+                "login": m.organization.login,
+                "avatar_url": m.organization.avatar_url,
+                "state": m.state,       # "active" or "pending"
+                "role": m.role,          # "admin" or "member"
+            })
+        return memberships
+
     def list_org_repos(self, org_login: str) -> list[dict]:
         """List repos for a specific org or personal account (owner-only)."""
         gh_user = self.gh.get_user()

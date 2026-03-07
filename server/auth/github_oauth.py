@@ -27,6 +27,7 @@ GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 GITHUB_ORGS_URL = "https://api.github.com/user/orgs"
+GITHUB_ORG_MEMBERSHIPS_URL = "https://api.github.com/user/memberships/orgs"
 
 
 @router.get("/github/login")
@@ -86,14 +87,23 @@ async def github_callback(
         user_resp = await client.get(GITHUB_USER_URL, headers=headers)
         github_user = user_resp.json()
 
-        # Fetch user's orgs
+        # Fetch user's authorized orgs (only orgs where OAuth app has access)
         orgs_resp = await client.get(GITHUB_ORGS_URL, headers=headers)
         if orgs_resp.status_code == 200:
             github_orgs = orgs_resp.json()
-            logger.info("Fetched %d orgs for user", len(github_orgs))
+            logger.info("Fetched %d authorized orgs for user", len(github_orgs))
         else:
             github_orgs = []
             logger.warning("Failed to fetch orgs: %s %s", orgs_resp.status_code, orgs_resp.text)
+
+        # Fetch all org memberships (includes restricted orgs)
+        memberships_resp = await client.get(GITHUB_ORG_MEMBERSHIPS_URL, headers=headers)
+        if memberships_resp.status_code == 200:
+            github_memberships = memberships_resp.json()
+            logger.info("Fetched %d org memberships for user", len(github_memberships))
+        else:
+            github_memberships = []
+            logger.info("Could not fetch org memberships: %s", memberships_resp.status_code)
 
     db = await get_db()
 
@@ -109,15 +119,37 @@ async def github_callback(
         access_token_encrypted=encrypted_token,
     )
 
-    # Sync orgs
+    # Sync authorized orgs
+    authorized_logins = set()
     for gh_org in github_orgs:
+        authorized_logins.add(gh_org["login"])
         org_id = await org_queries.upsert_org(
             db,
             github_owner=gh_org["login"],
             display_name=gh_org.get("login"),
             avatar_url=gh_org.get("avatar_url"),
         )
-        await user_queries.upsert_org_membership(db, user_id, org_id, role="member")
+        await user_queries.upsert_org_membership(
+            db, user_id, org_id, role="member", access_status="authorized",
+        )
+
+    # Sync restricted orgs (memberships not in authorized set)
+    for membership in github_memberships:
+        org_info = membership.get("organization", {})
+        login = org_info.get("login", "")
+        if login and login not in authorized_logins:
+            org_id = await org_queries.upsert_org(
+                db,
+                github_owner=login,
+                display_name=login,
+                avatar_url=org_info.get("avatar_url"),
+            )
+            await user_queries.upsert_org_membership(
+                db, user_id, org_id,
+                role=membership.get("role", "member"),
+                access_status="restricted",
+            )
+            logger.info("Org %s synced as restricted (OAuth app not authorized)", login)
 
     # Also ensure user's personal account is an org
     personal_org_id = await org_queries.upsert_org(

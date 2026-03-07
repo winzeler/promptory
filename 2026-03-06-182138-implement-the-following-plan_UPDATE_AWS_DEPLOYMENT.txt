@@ -1,0 +1,2317 @@
+
+ ▐▛███▜▌   Claude Code v2.1.70
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/src/futureself/prompt-mgmt
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                            │
+│                                                                              │
+│ Plan: Update AWS Deployment Documentation                                    │
+│                                                                              │
+│ Context                                                                      │
+│                                                                              │
+│ After deploying Promptdis to AWS Lambda via SAM, numerous issues were        │
+│ discovered and fixed during the actual deployment process. The existing docs │
+│  (SERVERLESS_PLAN.md, SERVERLESS_README.md, PROMPT_APP.md,                   │
+│ PROMPT_APP_BUILD_CHECKLIST.md, PROMPTDIS_API_DOCS.md) describe the planned   │
+│ architecture but don't reflect the actual deployed state. This plan covers   │
+│ updating all docs to match reality.                                          │
+│                                                                              │
+│ Files to Update                                                              │
+│                                                                              │
+│ All in ~/src/futureself/dwight_docs/prompt_mgmt/:                            │
+│                                                                              │
+│ 1. SERVERLESS_PLAN.md — Architecture plan (corrections to match actual       │
+│ implementation)                                                              │
+│ 2. SERVERLESS_README.md — Operator deployment guide (most changes)           │
+│ 3. PROMPT_APP.md §13 — Deployment section                                    │
+│ 4. PROMPT_APP_BUILD_CHECKLIST.md — Phase 6 sprint checklist (mark completed  │
+│ items)                                                                       │
+│ 5. PROMPTDIS_API_DOCS.md — Configuration reference                           │
+│                                                                              │
+│ Also in ~/src/futureself/prompt-mgmt/:                                       │
+│ 6. RUNBOOK.md — Operational guide (verify serverless sections are current)   │
+│                                                                              │
+│ Discrepancies to Fix                                                         │
+│                                                                              │
+│ A. Runtime & Build Changes                                                   │
+│                                                                              │
+│ ┌──────────────────────┬──────────────────────────────────────────────────┐  │
+│ │    What docs say     │               What's actually true               │  │
+│ ├──────────────────────┼──────────────────────────────────────────────────┤  │
+│ │ Python 3.11 runtime  │ Python 3.12 runtime                              │  │
+│ ├──────────────────────┼──────────────────────────────────────────────────┤  │
+│ │ sam build uses       │ Makefile-based build (BuildMethod: makefile)     │  │
+│ │ default              │ with --platform manylinux2014_x86_64 for         │  │
+│ │ PythonPipBuilder     │ cross-compilation                                │  │
+│ ├──────────────────────┼──────────────────────────────────────────────────┤  │
+│ │ No mention of        │ requirements.txt generated from uv pip compile   │  │
+│ │ requirements.txt     │ is required                                      │  │
+│ ├──────────────────────┼──────────────────────────────────────────────────┤  │
+│ │ No mention of        │ .samignore excludes web/, sdk-ts/, .venv/, etc.  │  │
+│ │ .samignore           │                                                  │  │
+│ ├──────────────────────┼──────────────────────────────────────────────────┤  │
+│ │ lifespan="off" in    │ lifespan="auto" — required for init_db() to run  │  │
+│ │ Mangum               │                                                  │  │
+│ ├──────────────────────┼──────────────────────────────────────────────────┤  │
+│ │ No stage prefix      │ api_gateway_base_path=f"/{stage}" strips stage   │  │
+│ │ handling             │ prefix from HTTP API v2 paths                    │  │
+│ └──────────────────────┴──────────────────────────────────────────────────┘  │
+│                                                                              │
+│ B. Networking (Not in Original Plan)                                         │
+│                                                                              │
+│ ┌─────────────────────┬───────────────────────────────────────────────────┐  │
+│ │    What docs say    │               What's actually true                │  │
+│ ├─────────────────────┼───────────────────────────────────────────────────┤  │
+│ │ Just private        │ NAT Gateway required — Lambda in VPC has no       │  │
+│ │ subnets + EFS       │ internet without it                               │  │
+│ ├─────────────────────┼───────────────────────────────────────────────────┤  │
+│ │ No public subnet    │ Public subnet (10.0.3.0/24) with Internet Gateway │  │
+│ │                     │  for NAT Gateway                                  │  │
+│ ├─────────────────────┼───────────────────────────────────────────────────┤  │
+│ │ No mention of       │ NAT Gateway + route tables connect private        │  │
+│ │ internet access     │ subnets to internet via public subnet             │  │
+│ ├─────────────────────┼───────────────────────────────────────────────────┤  │
+│ │ Cost estimate       │ Add ~$32/month for NAT Gateway ($0.045/hr + data  │  │
+│ │ ~$2/month           │ transfer)                                         │  │
+│ └─────────────────────┴───────────────────────────────────────────────────┘  │
+│                                                                              │
+│ C. Custom Domain Support (Not in Original Plan)                              │
+│                                                                              │
+│ ┌───────────────────────────┬─────────────────────────────────────────────┐  │
+│ │       What docs say       │            What's actually true             │  │
+│ ├───────────────────────────┼─────────────────────────────────────────────┤  │
+│ │ Raw API Gateway URL       │ Custom domain parameters: ApiDomainName,    │  │
+│ │                           │ ApiAcmCertificateArn                        │  │
+│ ├───────────────────────────┼─────────────────────────────────────────────┤  │
+│ │ No web UI custom domain   │ Custom domain parameters: DomainName,       │  │
+│ │                           │ AcmCertificateArn                           │  │
+│ ├───────────────────────────┼─────────────────────────────────────────────┤  │
+│ │ No conditions             │ CloudFormation Conditions: HasCustomDomain, │  │
+│ │                           │  HasApiDomain                               │  │
+│ ├───────────────────────────┼─────────────────────────────────────────────┤  │
+│ │ No API Gateway custom     │ ApiCustomDomain + ApiMapping resources      │  │
+│ │ domain resource           │                                             │  │
+│ ├───────────────────────────┼─────────────────────────────────────────────┤  │
+│ │ CloudFront without        │ Conditional Aliases + ViewerCertificate on  │  │
+│ │ aliases                   │ CloudFront                                  │  │
+│ ├───────────────────────────┼─────────────────────────────────────────────┤  │
+│ │ ACM certs not mentioned   │ Two ACM certs: us-east-1 (CloudFront),      │  │
+│ │                           │ us-east-2 (API Gateway)                     │  │
+│ └───────────────────────────┴─────────────────────────────────────────────┘  │
+│                                                                              │
+│ D. Authentication & Cookies                                                  │
+│                                                                              │
+│ ┌──────────────────────────┬──────────────────────────────────────────────┐  │
+│ │      What docs say       │             What's actually true             │  │
+│ ├──────────────────────────┼──────────────────────────────────────────────┤  │
+│ │ No cross-domain cookie   │ SameSite=None; Secure for cross-subdomain    │  │
+│ │ handling                 │ (api.X.com → app.X.com)                      │  │
+│ ├──────────────────────────┼──────────────────────────────────────────────┤  │
+│ │ No cookie domain setting │ domain=.promptdis.com via                    │  │
+│ │                          │ settings.cookie_domain property              │  │
+│ ├──────────────────────────┼──────────────────────────────────────────────┤  │
+│ │ CORS via API Gateway     │ CORS handled by FastAPI middleware (API      │  │
+│ │ CorsConfiguration        │ Gateway CORS removed to avoid conflicts)     │  │
+│ └──────────────────────────┴──────────────────────────────────────────────┘  │
+│                                                                              │
+│ E. Frontend API URL                                                          │
+│                                                                              │
+│ ┌───────────────────────────────┬─────────────────────────────────────────┐  │
+│ │         What docs say         │          What's actually true           │  │
+│ ├───────────────────────────────┼─────────────────────────────────────────┤  │
+│ │ Build-time VITE_API_BASE_URL  │ Runtime config.js pattern:              │  │
+│ │ env var                       │ window.__PROMPTDIS_CONFIG__             │  │
+│ ├───────────────────────────────┼─────────────────────────────────────────┤  │
+│ │ deploy-web.sh exports env var │ deploy-web.sh writes config.js to dist/ │  │
+│ │  before build                 │  after build                            │  │
+│ ├───────────────────────────────┼─────────────────────────────────────────┤  │
+│ │ No --region flag on           │ --region flag added (default:           │  │
+│ │ deploy-web.sh                 │ us-east-2)                              │  │
+│ └───────────────────────────────┴─────────────────────────────────────────┘  │
+│                                                                              │
+│ F. SAM Configuration                                                         │
+│                                                                              │
+│ ┌──────────────────────────────────┬──────────────────────────────────────┐  │
+│ │          What docs say           │         What's actually true         │  │
+│ ├──────────────────────────────────┼──────────────────────────────────────┤  │
+│ │ ReservedConcurrentExecutions: 1  │ Commented out — requires concurrency │  │
+│ │                                  │  quota increase                      │  │
+│ ├──────────────────────────────────┼──────────────────────────────────────┤  │
+│ │ EFS uses Tags                    │ Uses FileSystemTags (CloudFormation  │  │
+│ │                                  │ schema requirement)                  │  │
+│ ├──────────────────────────────────┼──────────────────────────────────────┤  │
+│ │ No STAGE env var                 │ STAGE env var passed to Lambda for   │  │
+│ │                                  │ Mangum base path                     │  │
+│ ├──────────────────────────────────┼──────────────────────────────────────┤  │
+│ │ Secrets entered via --guided     │ samconfig.toml stores all params     │  │
+│ │ each time                        │ including secrets (gitignored)       │  │
+│ ├──────────────────────────────────┼──────────────────────────────────────┤  │
+│ │ samconfig.toml not gitignored    │ Added to .gitignore (contains        │  │
+│ │                                  │ secrets)                             │  │
+│ ├──────────────────────────────────┼──────────────────────────────────────┤  │
+│ │ ElevenLabsApiKey has default ""  │ Default "none" (SAM guided deploy    │  │
+│ │                                  │ rejects blank NoEcho params)         │  │
+│ └──────────────────────────────────┴──────────────────────────────────────┘  │
+│                                                                              │
+│ G. Template Structure Changes                                                │
+│                                                                              │
+│ ┌──────────────────────────┬──────────────────────────────────────────────┐  │
+│ │      What docs say       │             What's actually true             │  │
+│ ├──────────────────────────┼──────────────────────────────────────────────┤  │
+│ │ No DependsOn for Lambdas │ DependsOn: [MountTargetA, MountTargetB] on   │  │
+│ │                          │ both Lambda functions                        │  │
+│ ├──────────────────────────┼──────────────────────────────────────────────┤  │
+│ │ No BuildMethod: makefile │ Both functions have Metadata: BuildMethod:   │  │
+│ │  metadata                │ makefile                                     │  │
+│ └──────────────────────────┴──────────────────────────────────────────────┘  │
+│                                                                              │
+│ Execution Plan                                                               │
+│                                                                              │
+│ Step 1: Update SERVERLESS_PLAN.md                                            │
+│                                                                              │
+│ - §3.1: Change lifespan="off" → lifespan="auto", add api_gateway_base_path   │
+│ docs                                                                         │
+│ - §3.2: Add NAT Gateway requirement, update VPC architecture, update cost    │
+│ estimate                                                                     │
+│ - §3.10: Add Makefile-based build approach, cross-compilation requirement    │
+│ - §5: Update SAM template outline with custom domains, NAT Gateway,          │
+│ conditions                                                                   │
+│ - §6 Risks: Add NAT Gateway cost risk, update concurrency note               │
+│ - §8 Cost: Add NAT Gateway ~$32/month, update total from ~$2 to ~$34         │
+│                                                                              │
+│ Step 2: Update SERVERLESS_README.md                                          │
+│                                                                              │
+│ - Prerequisites: Python 3.11 → 3.12                                          │
+│ - Architecture diagram: Add NAT Gateway, custom domains                      │
+│ - Quick start: Add requirements.txt generation step                          │
+│ - Environment variables: Add STAGE env var                                   │
+│ - SAM parameters: Add ApiDomainName, ApiAcmCertificateArn, update            │
+│ ElevenLabsApiKey default                                                     │
+│ - Deploy API section: Document samconfig.toml secret storage, remove manual  │
+│ env var update step                                                          │
+│ - Deploy Web UI section: Document runtime config.js pattern, --region flag   │
+│ - Custom domain section: Full rewrite with ACM cert steps for both web +     │
+│ API, Cloudflare DNS instructions                                             │
+│ - Troubleshooting: Add "pydantic_core import error" (platform mismatch),     │
+│ "Service Unavailable" (no NAT Gateway), "cookie not sent" (SameSite/domain), │
+│  "Not Found 404" (stage prefix stripping)                                    │
+│ - Cost section: Update with NAT Gateway                                      │
+│                                                                              │
+│ Step 3: Update PROMPT_APP.md §13                                             │
+│                                                                              │
+│ - Update IaC row: mention Makefile build, custom domains                     │
+│ - Update cost estimate: ~$2 → ~$34 (NAT Gateway dominates)                   │
+│ - Update runtime: 3.11 → 3.12                                                │
+│ - Add note about NAT Gateway requirement for VPC Lambda                      │
+│                                                                              │
+│ Step 4: Update PROMPT_APP_BUILD_CHECKLIST.md Phase 6                         │
+│                                                                              │
+│ - Mark completed items in Sprint 6.1-6.4                                     │
+│ - Add items that were discovered during deployment (NAT Gateway, Makefile    │
+│ build, cookie fixes, runtime config.js)                                      │
+│ - Note remaining items (CI/CD pipeline, eval container limitation docs)      │
+│                                                                              │
+│ Step 5: Update PROMPTDIS_API_DOCS.md                                         │
+│                                                                              │
+│ - Configuration reference: Add STAGE env var, update cookie_domain property  │
+│ docs                                                                         │
+│ - Deployment options: Update Lambda cost estimate                            │
+│ - Serverless settings: Document actual defaults vs planned                   │
+│                                                                              │
+│ Step 6: Update RUNBOOK.md                                                    │
+│                                                                              │
+│ - Verify serverless deployment section matches actual sam build && sam       │
+│ deploy flow                                                                  │
+│ - Update troubleshooting with real-world issues encountered                  │
+│ - Verify deploy-web.sh documentation matches --region flag and runtime       │
+│ config                                                                       │
+│                                                                              │
+│ Verification                                                                 │
+│                                                                              │
+│ - Read each updated doc and confirm all code snippets/commands match the     │
+│ actual files in prompt-mgmt/                                                 │
+│ - Cross-reference infra/template.yaml, Makefile, deploy-web.sh,              │
+│ lambda_handler.py, config.py, github_oauth.py against doc claims             │
+│ - Ensure no stale references to Python 3.11, lifespan="off", or build-time   │
+│ VITE_API_BASE_URL                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ Tool loaded. 
+
+⏺ I'll start by reading the actual source files and all the docs that need
+  updating in parallel.
+
+⏺ 2 Explore agents finished (ctrl+o to expand)
+   ├─ Read actual source files · 36 tool uses · 48.4k tokens
+   │  ⎿  Done
+   └─ Read existing doc files · 20 tool uses · 54.1k tokens
+      ⎿  Done
+
+⏺ Good, I have a thorough understanding of both the actual codebase and the
+  existing docs. Now let me read the specific files to make targeted edits.
+
+⏺ Read 6 files (ctrl+o to expand)
+
+⏺ Now I have all the source files and docs. Let me also check the tmp file for
+  additional context, then start making all the edits.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Good, I have all the context. Now let me execute all the updates. I'll work
+  through the files systematically, starting with the most critical ones.
+
+  Step 1: Update SERVERLESS_PLAN.md
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 1 line, removed 1 line
+       4  
+       5  | Field | Value |
+       6  |-------|-------|
+       7 -| Status | Proposed |                                          
+       7 +| Status | Implemented |                                       
+       8  | Author | Loren Winzeler |
+       9  | Date | 2026-02-19 |
+      10  | Related | [PROMPT_APP.md](./PROMPT_APP.md) §13, [SERVERLESS_R
+          EADME.md](./SERVERLESS_README.md), [DEPLOYMENT.md](../DEPLOYMEN
+          T.md) |
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 6 lines, removed 2 lines
+       91  
+       92  ```python
+       93  # server/lambda_handler.py
+       94 +import os                                                     
+       95  from mangum import Mangum
+       96  from server.main import app
+       97  
+       97 -handler = Mangum(app, lifespan="off")                         
+       98 +stage = os.environ.get("STAGE", "")                           
+       99 +base_path = f"/{stage}" if stage else ""                      
+      100 +handler = Mangum(app, lifespan="auto", api_gateway_base_path=b
+          +ase_path)                                                     
+      101  ```
+      102  
+      100 -- `lifespan="off"` disables the FastAPI lifespan (we handle in
+          -it differently on Lambda)                                     
+      103 +- `lifespan="auto"` — required so FastAPI's lifespan runs `ini
+          +t_db()` on cold start                                         
+      104 +- `api_gateway_base_path` — strips the stage prefix (e.g., `/d
+          +ev`) from HTTP API v2 paths so FastAPI routes match correctly 
+      105  - Mangum handles API Gateway v2 (HTTP API) events natively
+      106  - Supports path parameters, query strings, headers, cookies, b
+           inary responses
+      107  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 9 lines, removed 1 line
+      121  - Switch journal mode: `PRAGMA journal_mode=DELETE` (EFS lacks
+            mmap support required for WAL)
+      122  - Add: `PRAGMA busy_timeout=5000` (wait 5s for locks instead o
+           f failing immediately)
+      123  
+      124 +**VPC + NAT Gateway requirement:**                            
+      125 +Lambda functions attached to a VPC (required for EFS) lose int
+          +ernet access by default. A **NAT Gateway** in a public subnet 
+          +is required for the Lambda to reach GitHub API, ElevenLabs, an
+          +d other external services.                                    
+      126 +                                                              
+      127 +- **Public subnet (10.0.3.0/24)** with Internet Gateway for NA
+          +T Gateway placement                                           
+      128 +- **NAT Gateway** routes outbound traffic from private subnets
+          + through the public subnet                                    
+      129 +- **Route tables** connect private subnets to internet via NAT
+          + Gateway                                                      
+      130 +- **Cost impact:** NAT Gateway adds ~$32/month ($0.045/hr + da
+          +ta transfer) — this dominates the total cost                  
+      131 +                                                              
+      132  **Concurrency control:**
+      125 -- Set Lambda **reserved concurrency = 1** for MVP (eliminates 
+          -SQLite lock contention)                                       
+      133 +- Reserved concurrency is **commented out** in the current tem
+          +plate (requires AWS concurrency quota increase request). The `
+          +PRAGMA busy_timeout=5000` serves as the safety net.           
+      134  - If throughput needed: increase to 3-5 with `busy_timeout` ha
+           ndling retries
+      135  - Long-term: migrate to Aurora Serverless v2 if concurrent wri
+           te throughput becomes a bottleneck
+      136  
+
+⏺ Now update §3.10 to add Makefile build info:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 22 lines
+      228  - `sam local start-api` for local testing
+      229  - Aligns with FutureSelf's existing GitHub Actions CI/CD
+      230  
+      231 +### 3.11 Build: Makefile-Based Cross-Compilation              
+      232 +                                                              
+      233 +The default SAM `PythonPipBuilder` doesn't handle cross-compil
+          +ation for packages with C extensions (e.g., `pydantic_core`, `
+          +cryptography`). The actual build uses a **Makefile-based appro
+          +ach**:                                                        
+      234 +                                                              
+      235 +```makefile                                                   
+      236 +# Makefile (in repo root)                                     
+      237 +PIP_PLATFORM = --platform manylinux2014_x86_64 --only-binary=:
+          +all: --implementation cp --python-version 3.12                
+      238 +                                                              
+      239 +build-ApiFunction:                                            
+      240 +  pip install -r requirements.txt -t $(ARTIFACTS_DIR)/ $(PIP_P
+          +LATFORM)                                                      
+      241 +  cp -r server/ $(ARTIFACTS_DIR)/server/                      
+      242 +  cp -r scripts/ $(ARTIFACTS_DIR)/scripts/                    
+      243 +```                                                           
+      244 +                                                              
+      245 +Both Lambda functions have `Metadata: BuildMethod: makefile` i
+          +n the SAM template. The `requirements.txt` is generated from `
+          +uv pip compile`:                                              
+      246 +                                                              
+      247 +```bash                                                       
+      248 +uv pip compile pyproject.toml -o requirements.txt             
+      249 +```                                                           
+      250 +                                                              
+      251 +A `.samignore` file excludes `web/`, `sdk-ts/`, `.venv/`, `__p
+          +ycache__/`, `data/`, and other non-Lambda files from the build
+          + artifact.                                                    
+      252 +                                                              
+      253  ---
+      254  
+      255  ## 4. Code Changes Required
+
+⏺ Now update §4.7 Lambda Handler:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 8 lines, removed 1 line
+      384  
+      385  ```python
+      386  # server/lambda_handler.py
+      387 +import os                                                     
+      388  from mangum import Mangum
+      389  from server.main import app
+      390  
+      390 -handler = Mangum(app, lifespan="off")                         
+      391 +stage = os.environ.get("STAGE", "")                           
+      392 +base_path = f"/{stage}" if stage else ""                      
+      393 +handler = Mangum(app, lifespan="auto", api_gateway_base_path=b
+          +ase_path)                                                     
+      394  ```
+      395  
+      396 +- `lifespan="auto"` is required so `init_db()` runs on cold st
+          +art                                                           
+      397 +- `api_gateway_base_path` strips the stage prefix from HTTP AP
+          +I v2 paths                                                    
+      398 +- The `STAGE` environment variable is set by the SAM template 
+      399 +                                                              
+      400  Plus a separate handler for session cleanup:
+      401  
+      402  ```python
+
+⏺ Now update the SAM template outline (§5) — runtime, NAT Gateway, custom
+  domains, DependsOn, BuildMethod, concurrency:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 128 lines, removed 106 lines
+      450  ## 5. SAM Template Outline
+      451  
+      452  ```yaml
+      453 -# infra/template.yaml                                         
+      453 +# infra/template.yaml (simplified outline — see actual file fo
+          +r full details)                                               
+      454  AWSTemplateFormatVersion: '2010-09-09'
+      455  Transform: AWS::Serverless-2016-10-31
+      456  Description: Promptdis Serverless Deployment
+     ...
+      463    VpcCidr:
+      464      Type: String
+      465      Default: "10.0.0.0/16"
+      466 +  # Custom domain parameters (optional)                       
+      467    DomainName:
+      468      Type: String
+      469      Default: ""
+      470 +    Description: Custom domain for web UI (e.g., app.promptdis
+          +.com)                                                         
+      471 +  AcmCertificateArn:                                          
+      472 +    Type: String                                              
+      473 +    Default: ""                                               
+      474 +    Description: ACM cert ARN for web UI domain (must be in us
+          +-east-1)                                                      
+      475 +  ApiDomainName:                                              
+      476 +    Type: String                                              
+      477 +    Default: ""                                               
+      478 +    Description: Custom domain for API (e.g., api.promptdis.co
+          +m)                                                            
+      479 +  ApiAcmCertificateArn:                                       
+      480 +    Type: String                                              
+      481 +    Default: ""                                               
+      482 +    Description: ACM cert ARN for API domain (in deploy region
+          +)                                                             
+      483 +  # Secrets (stored in samconfig.toml, gitignored)            
+      484 +  GitHubClientId:                                             
+      485 +    Type: String                                              
+      486 +    NoEcho: true                                              
+      487 +  GitHubClientSecret:                                         
+      488 +    Type: String                                              
+      489 +    NoEcho: true                                              
+      490 +  AppSecretKey:                                               
+      491 +    Type: String                                              
+      492 +    NoEcho: true                                              
+      493 +  ElevenLabsApiKey:                                           
+      494 +    Type: String                                              
+      495 +    Default: "none"  # SAM guided deploy rejects blank NoEcho 
+          +params                                                        
+      496 +    NoEcho: true                                              
+      497  
+      498 +Conditions:                                                   
+      499 +  HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]       
+      500 +  HasApiDomain: !Not [!Equals [!Ref ApiDomainName, ""]]       
+      501 +                                                              
+      502  Globals:
+      503    Function:
+      472 -    Runtime: python3.11                                       
+      504 +    Runtime: python3.12                                       
+      505      Timeout: 30
+      506      MemorySize: 512
+      507      Environment:
+      508        Variables:
+      509          DEPLOYMENT_MODE: lambda
+      510 +        STAGE: !Ref Stage                                     
+      511          DATABASE_PATH: /mnt/efs/data/promptdis.db
+      512          DYNAMODB_STATE_TABLE: !Ref OAuthStateTable
+      513          S3_TTS_BUCKET: !Ref TTSCacheBucket
+      481 -        AWS_REGION: !Ref AWS::Region                          
+      514  
+      515  Resources:
+      516    # --- Networking ---
+     ...
+      520        CidrBlock: !Ref VpcCidr
+      521  
+      522    PrivateSubnetA:
+      491 -    Type: AWS::EC2::Subnet                                    
+      492 -    # ... (2 subnets for EFS mount targets)                   
+      523 +    Type: AWS::EC2::Subnet  # 10.0.1.0/24 (AZ-a)              
+      524  
+      525    PrivateSubnetB:
+      495 -    Type: AWS::EC2::Subnet                                    
+      526 +    Type: AWS::EC2::Subnet  # 10.0.2.0/24 (AZ-b)              
+      527  
+      528 +  # Public subnet for NAT Gateway                             
+      529 +  PublicSubnet:                                               
+      530 +    Type: AWS::EC2::Subnet  # 10.0.3.0/24                     
+      531 +                                                              
+      532 +  InternetGateway:                                            
+      533 +    Type: AWS::EC2::InternetGateway                           
+      534 +                                                              
+      535 +  # NAT Gateway — required for Lambda in VPC to reach internet
+      536 +  NatGateway:                                                 
+      537 +    Type: AWS::EC2::NatGateway                                
+      538 +    Properties:                                               
+      539 +      SubnetId: !Ref PublicSubnet                             
+      540 +      AllocationId: !GetAtt NatGatewayEIP.AllocationId        
+      541 +                                                              
+      542 +  NatGatewayEIP:                                              
+      543 +    Type: AWS::EC2::EIP                                       
+      544 +                                                              
+      545 +  # Route tables: private subnets → NAT Gateway → internet    
+      546 +  PrivateRouteTable:                                          
+      547 +    Type: AWS::EC2::RouteTable                                
+      548 +    # Routes: 0.0.0.0/0 → NatGateway                          
+      549 +                                                              
+      550    # --- EFS (SQLite storage) ---
+      551    FileSystem:
+      552      Type: AWS::EFS::FileSystem
+      553      Properties:
+      554        Encrypted: true
+      555        PerformanceMode: generalPurpose
+      556 +      FileSystemTags:  # Note: uses FileSystemTags, not Tags  
+      557 +        - Key: Name                                           
+      558 +          Value: !Sub "promptdis-${Stage}"                    
+      559  
+      560    MountTargetA:
+      561      Type: AWS::EFS::MountTarget
+     ...
+      583            Permissions: "755"
+      584          Path: "/promptdis"
+      585  
+      530 -  # --- DynamoDB (OAuth state) ---                            
+      531 -  OAuthStateTable:                                            
+      532 -    Type: AWS::DynamoDB::Table                                
+      533 -    Properties:                                               
+      534 -      TableName: !Sub "promptdis-oauth-states-${Stage}"       
+      535 -      BillingMode: PAY_PER_REQUEST                            
+      536 -      AttributeDefinitions:                                   
+      537 -        - AttributeName: state                                
+      538 -          AttributeType: S                                    
+      539 -      KeySchema:                                              
+      540 -        - AttributeName: state                                
+      541 -          KeyType: HASH                                       
+      542 -      TimeToLiveSpecification:                                
+      543 -        AttributeName: ttl                                    
+      544 -        Enabled: true                                         
+      586 +  # --- DynamoDB, S3, CloudFront --- (same as before, omitted 
+          +for brevity)                                                  
+      587  
+      546 -  # --- S3 (TTS cache) ---                                    
+      547 -  TTSCacheBucket:                                             
+      548 -    Type: AWS::S3::Bucket                                     
+      549 -    Properties:                                               
+      550 -      BucketName: !Sub "promptdis-tts-cache-${Stage}"         
+      551 -      LifecycleConfiguration:                                 
+      552 -        Rules:                                                
+      553 -          - Id: ExpireTTSCache                                
+      554 -            Status: Enabled                                   
+      555 -            ExpirationInDays: 1                               
+      556 -                                                              
+      557 -  # --- S3 (Web UI) ---                                       
+      558 -  WebBucket:                                                  
+      559 -    Type: AWS::S3::Bucket                                     
+      560 -    Properties:                                               
+      561 -      BucketName: !Sub "promptdis-web-${Stage}"               
+      562 -                                                              
+      563 -  WebBucketPolicy:                                            
+      564 -    Type: AWS::S3::BucketPolicy                               
+      565 -    Properties:                                               
+      566 -      Bucket: !Ref WebBucket                                  
+      567 -      PolicyDocument:                                         
+      568 -        Statement:                                            
+      569 -          - Effect: Allow                                     
+      570 -            Principal:                                        
+      571 -              Service: cloudfront.amazonaws.com               
+      572 -            Action: s3:GetObject                              
+      573 -            Resource: !Sub "${WebBucket.Arn}/*"               
+      574 -                                                              
+      575 -  # --- CloudFront (Web UI) ---                               
+      588 +  # --- CloudFront (Web UI) — with conditional custom domain -
+          +--                                                            
+      589    WebDistribution:
+      590      Type: AWS::CloudFront::Distribution
+      591      Properties:
+      592        DistributionConfig:
+      580 -        Origins:                                              
+      581 -          - DomainName: !GetAtt WebBucket.RegionalDomainName  
+      582 -            Id: S3Origin                                      
+      583 -            S3OriginConfig:                                   
+      584 -              OriginAccessIdentity: ""                        
+      585 -        DefaultCacheBehavior:                                 
+      586 -          TargetOriginId: S3Origin                            
+      587 -          ViewerProtocolPolicy: redirect-to-https             
+      588 -          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 
+          - # CachingOptimized                                           
+      589 -        DefaultRootObject: index.html                         
+      590 -        CustomErrorResponses:                                 
+      591 -          - ErrorCode: 404                                    
+      592 -            ResponseCode: 200                                 
+      593 -            ResponsePagePath: /index.html  # SPA routing      
+      594 -        Enabled: true                                         
+      593 +        Aliases: !If [HasCustomDomain, [!Ref DomainName], !Ref
+          + "AWS::NoValue"]                                              
+      594 +        ViewerCertificate: !If                                
+      595 +          - HasCustomDomain                                   
+      596 +          - AcmCertificateArn: !Ref AcmCertificateArn         
+      597 +            SslSupportMethod: sni-only                        
+      598 +            MinimumProtocolVersion: TLSv1.2_2021              
+      599 +          - CloudFrontDefaultCertificate: true                
+      600 +        # ... (origins, cache behavior, SPA routing same as be
+          +fore)                                                         
+      601  
+      602    # --- Lambda (API) ---
+      603    ApiFunction:
+      604      Type: AWS::Serverless::Function
+      605 +    DependsOn: [MountTargetA, MountTargetB]  # Wait for EFS mo
+          +unt targets                                                   
+      606 +    Metadata:                                                 
+      607 +      BuildMethod: makefile  # Uses Makefile for cross-compila
+          +tion                                                          
+      608      Properties:
+      609        Handler: server.lambda_handler.handler
+      601 -      CodeUri: .                                              
+      610 +      CodeUri: ..                                             
+      611        MemorySize: 512
+      612        Timeout: 30
+      604 -      ReservedConcurrentExecutions: 1  # SQLite safety        
+      613 +      # ReservedConcurrentExecutions: 1  # Commented out — req
+          +uires quota increase                                          
+      614        VpcConfig:
+      615          SubnetIds:
+      616            - !Ref PrivateSubnetA
+     ...
+      620        FileSystemConfigs:
+      621          - Arn: !GetAtt AccessPoint.Arn
+      622            LocalMountPath: /mnt/efs
+      614 -      Policies:                                               
+      615 -        - DynamoDBCrudPolicy:                                 
+      616 -            TableName: !Ref OAuthStateTable                   
+      617 -        - S3CrudPolicy:                                       
+      618 -            BucketName: !Ref TTSCacheBucket                   
+      623        Events:
+      624          Api:
+      625            Type: HttpApi
+     ...
+      629    # --- Lambda (Session Cleanup) ---
+      630    CleanupFunction:
+      631      Type: AWS::Serverless::Function
+      632 +    DependsOn: [MountTargetA, MountTargetB]                   
+      633 +    Metadata:                                                 
+      634 +      BuildMethod: makefile                                   
+      635      Properties:
+      636        Handler: scripts.cleanup_sessions_handler.handler
+      630 -      CodeUri: .                                              
+      637 +      CodeUri: ..                                             
+      638 +      MemorySize: 256                                         
+      639        Timeout: 60
+      632 -      VpcConfig:                                              
+      633 -        SubnetIds:                                            
+      634 -          - !Ref PrivateSubnetA                               
+      635 -          - !Ref PrivateSubnetB                               
+      636 -        SecurityGroupIds:                                     
+      637 -          - !Ref LambdaSecurityGroup                          
+      638 -      FileSystemConfigs:                                      
+      639 -        - Arn: !GetAtt AccessPoint.Arn                        
+      640 -          LocalMountPath: /mnt/efs                            
+      641 -      Events:                                                 
+      642 -        Schedule:                                             
+      643 -          Type: Schedule                                      
+      644 -          Properties:                                         
+      645 -            Schedule: "rate(1 hour)"                          
+      640 +      # ... (same VPC/EFS config as ApiFunction)              
+      641  
+      642    # --- API Gateway ---
+      643    HttpApi:
+      644      Type: AWS::Serverless::HttpApi
+      645      Properties:
+      646        StageName: !Ref Stage
+      652 -      CorsConfiguration:                                      
+      653 -        AllowOrigins:                                         
+      654 -          - !Sub "https://${DomainName}"                      
+      655 -          - "http://localhost:5173"                           
+      656 -        AllowMethods:                                         
+      657 -          - GET                                               
+      658 -          - POST                                              
+      659 -          - PUT                                               
+      660 -          - DELETE                                            
+      661 -          - OPTIONS                                           
+      662 -        AllowHeaders:                                         
+      663 -          - "*"                                               
+      664 -        AllowCredentials: true                                
+      647 +      # Note: CORS removed from API Gateway — handled by FastA
+          +PI middleware                                                 
+      648 +      # to avoid conflicts with credential headers            
+      649        ThrottleConfig:
+      650          BurstLimit: 50
+      651          RateLimit: 100
+      652  
+      669 -  # --- Security Group ---                                    
+      653 +  # --- API Custom Domain (conditional) ---                   
+      654 +  ApiCustomDomain:                                            
+      655 +    Type: AWS::ApiGatewayV2::DomainName                       
+      656 +    Condition: HasApiDomain                                   
+      657 +    Properties:                                               
+      658 +      DomainName: !Ref ApiDomainName                          
+      659 +      DomainNameConfigurations:                               
+      660 +        - CertificateArn: !Ref ApiAcmCertificateArn           
+      661 +          EndpointType: REGIONAL                              
+      662 +                                                              
+      663 +  ApiMapping:                                                 
+      664 +    Type: AWS::ApiGatewayV2::ApiMapping                       
+      665 +    Condition: HasApiDomain                                   
+      666 +    Properties:                                               
+      667 +      DomainName: !Ref ApiCustomDomain                        
+      668 +      ApiId: !Ref HttpApi                                     
+      669 +      Stage: !Ref Stage                                       
+      670 +                                                              
+      671 +  # --- Security Groups ---                                   
+      672    LambdaSecurityGroup:
+      673      Type: AWS::EC2::SecurityGroup
+      674      Properties:
+      675        GroupDescription: Lambda function security group
+      676        VpcId: !Ref VPC
+      677 +      # Outbound: NFS (2049) to EFS, HTTPS (443) to internet  
+      678  
+      679 +  EfsSecurityGroup:                                           
+      680 +    Type: AWS::EC2::SecurityGroup                             
+      681 +    Properties:                                               
+      682 +      GroupDescription: EFS security group                    
+      683 +      VpcId: !Ref VPC                                         
+      684 +      # Inbound: NFS (2049) from LambdaSecurityGroup          
+      685 +                                                              
+      686  Outputs:
+      687    ApiUrl:
+      678 -    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}
+          -.amazonaws.com/${Stage}"                                      
+      679 -  WebUrl:                                                     
+      688 +    Value: !If                                                
+      689 +      - HasApiDomain                                          
+      690 +      - !Sub "https://${ApiDomainName}"                       
+      691 +      - !Sub "https://${HttpApi}.execute-api.${AWS::Region}.am
+          +azonaws.com/${Stage}"                                         
+      692 +  ApiDomainTarget:                                            
+      693 +    Condition: HasApiDomain                                   
+      694 +    Value: !GetAtt ApiCustomDomain.RegionalDomainName         
+      695 +  WebDistributionUrl:                                         
+      696      Value: !GetAtt WebDistribution.DomainName
+      697 +  WebDistributionId:                                          
+      698 +    Value: !Ref WebDistribution                               
+      699 +  WebBucketName:                                              
+      700 +    Value: !Ref WebBucket                                     
+      701 +  ApiFunctionName:                                            
+      702 +    Value: !Ref ApiFunction                                   
+      703    EfsId:
+      704      Value: !Ref FileSystem
+      683 -  OAuthTable:                                                 
+      705 +  OAuthTableName:                                             
+      706      Value: !Ref OAuthStateTable
+      685 -  TTSBucket:                                                  
+      707 +  TTSBucketName:                                              
+      708      Value: !Ref TTSCacheBucket
+      709  ```
+      710  
+
+⏺ Now update §6 Risks — add NAT Gateway cost, update concurrency note:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 4 lines, removed 2 lines
+      714  
+      715  | # | Risk | Severity | Mitigation |
+      716  |---|------|----------|------------|
+      717 -| 1 | **SQLite concurrent writes on Lambda** — multiple invoca
+          -tions writing simultaneously cause `SQLITE_BUSY` | High | Rese
+          -rved concurrency = 1 (MVP). `PRAGMA busy_timeout=5000` as safe
+          -ty net. Monitor 500s in CloudWatch. |                         
+      717 +| 1 | **SQLite concurrent writes on Lambda** — multiple invoca
+          +tions writing simultaneously cause `SQLITE_BUSY` | High | `PRA
+          +GMA busy_timeout=5000` as safety net. Reserved concurrency can
+          + be set to 1 (requires AWS quota increase). Monitor 500s in Cl
+          +oudWatch. |                                                   
+      718  | 2 | **EFS cold start latency** — VPC attachment adds 200-800
+           ms to cold starts | Medium | Accept for MVP. Provisioned concu
+           rrency ($) if latency becomes an issue. Keep-alive via CloudWa
+           tch scheduled event (5-min ping). |
+      719  | 3 | **FTS5 on EFS performance** — Full-text search uses memo
+           ry-mapped I/O; EFS may not support mmap efficiently | Medium |
+            Existing fallback: `search_prompts_by_body()` falls back to `
+           LIKE` queries when FTS5 is unavailable. Monitor query times. |
+      720  | 4 | **Lambda package size** — Python deps + Node.js (if eval
+            included) could exceed 250MB unzipped limit | Low | Eval excl
+           uded from Lambda build. Python-only package estimated at ~60-8
+           0MB (FastAPI + aiosqlite + httpx + mangum + boto3). Use Lambda
+            layers for boto3 (pre-installed in Lambda runtime). |
+      721  | 5 | **Mangum + BaseHTTPMiddleware compatibility** — Mangum m
+           ay have edge cases with Starlette's `BaseHTTPMiddleware` | Low
+            | No streaming responses in Promptdis. Rate limiter and auth 
+           middleware are simple request/response. Test thoroughly with `
+           sam local start-api`. |
+      722 -| 6 | **`asyncio.create_task` draining** — Mangum drains the e
+          -vent loop after handler returns; any lingering tasks may cause
+          - timeouts | Low | Lifespan set to `"off"`. No background tasks
+          - launched in Lambda mode. Eval service (which uses subprocess)
+          - is container-only. |                                         
+      722 +| 6 | **`asyncio.create_task` draining** — Mangum drains the e
+          +vent loop after handler returns; any lingering tasks may cause
+          + timeouts | Low | Lifespan set to `"auto"` with conditional ta
+          +sk creation. No background tasks launched in Lambda mode. Eval
+          + service (which uses subprocess) is container-only. |         
+      723 +| 7 | **NAT Gateway cost** — ~$32/month fixed cost regardless 
+          +of traffic | Medium | NAT Gateway dominates total cost. Accept
+          + for VPC-based deployment. Alternatives: VPC endpoints for AWS
+          + services (partial savings), or remove VPC requirement (breaks
+          + EFS). |                                                      
+      724 +| 8 | **Cross-compilation build failures** — `pydantic_core` a
+          +nd `cryptography` require Linux x86_64 binaries | Medium | Mak
+          +efile-based SAM build with `--platform manylinux2014_x86_64 --
+          +only-binary=:all:` ensures correct platform binaries. |       
+      725  
+      726  ---
+      727  
+
+⏺ Now update §8 Cost:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 5 lines, removed 2 lines
+      747  
+      748  | Service | Usage Assumption | Monthly Cost |
+      749  |---------|-----------------|-------------|
+      750 +| **NAT Gateway** | Always-on ($0.045/hr) + data transfer | **
+          +~$32.00** |                                                   
+      751  | **Lambda** | 50,000 requests, 512MB, 200ms avg | ~$0.50 |
+      752  | **API Gateway** | 50,000 requests (HTTP API) | ~$0.05 |
+      753  | **EFS** | 100MB storage, infrequent access | ~$0.03 |
+     ...
+      756  | **S3** (Web UI) | 100MB storage, served via CloudFront | ~$0
+           .01 |
+      757  | **CloudFront** | 10GB transfer, 100,000 requests | ~$1.00 |
+      758  | **CloudWatch Logs** | 1GB ingestion | ~$0.50 |
+      758 -| **Total** | | **~$2.14/month** |                            
+      759 +| **Total** | | **~$34/month** |                              
+      760  
+      761 +> **Note:** NAT Gateway dominates the cost at ~$32/month. This
+          + is required because Lambda in a VPC (needed for EFS) has no i
+          +nternet access without it. The original estimate of ~$2/month 
+          +did not account for NAT Gateway.                              
+      762 +                                                              
+      763  **Comparison:** ECS Fargate (0.25 vCPU, 0.5GB) running 24/7 = 
+           ~$9.50/month minimum. Container on EC2 t3.micro = ~$7.60/month
+           .
+      764  
+      762 -**Break-even:** Lambda becomes more expensive than Fargate at 
+          -roughly 500,000+ requests/month with average 200ms duration.  
+      765 +**Break-even:** With NAT Gateway, the serverless deployment is
+          + more expensive than Fargate at any traffic level. The advanta
+          +ge is operational simplicity (no container management) rather 
+          +than cost savings. To reduce cost, consider VPC endpoints for 
+          +AWS services or a hybrid approach.                            
+      766  
+      767  ---
+      768  
+
+⏺ Update the Sprint 6.1 reference to lifespan="off":
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Error editing file
+
+⏺ That's in the checklist file, not the plan. Let me move on to Step 2:
+  SERVERLESS_README.md.
+
+  Step 2: Update SERVERLESS_README.md
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 1 line, removed 1 line
+      31  |------|---------|---------|
+      32  | AWS CLI | v2+ | AWS account access |
+      33  | SAM CLI | v1.100+ | Build, test, and deploy Lambda |
+      34 -| Python | 3.11 | Lambda runtime |                             
+      34 +| Python | 3.12 | Lambda runtime |                             
+      35  | Node.js | 20+ | Web UI build (`npm run build`) |
+      36  | Docker or Podman | Latest | SAM uses containers for `sam buil
+          d` |
+      37  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 8 lines, removed 9 lines
+      53  git clone https://github.com/your-org/prompt-mgmt.git
+      54  cd prompt-mgmt
+      55  
+      56 -# 2. Install Lambda dependencies                               
+      57 -pip install -e ".[lambda]"                                     
+      56 +# 2. Generate requirements.txt for Lambda build (cross-compilat
+         +ion)                                                           
+      57 +uv pip compile pyproject.toml -o requirements.txt              
+      58  
+      59 -# 3. Build the SAM package                                     
+      60 -cd infra && sam build                                          
+      59 +# 3. Build and deploy (first time — interactive guided setup)  
+      60 +cd infra && sam build && sam deploy --guided                   
+      61  
+      62 -# 4. Deploy (first time — interactive guided setup)            
+      63 -sam deploy --guided                                            
+      64 -                                                               
+      65 -# 5. Deploy the web UI                                         
+      66 -cd ../scripts && ./deploy-web.sh                               
+      62 +# 4. Deploy the web UI                                         
+      63 +cd ../scripts && ./deploy-web.sh --stack promptdis-dev --region
+         + us-east-2                                                     
+      64  ```
+      65  
+      66 +SAM guided deploy saves all parameters (including secrets) to `
+         +infra/samconfig.toml` (gitignored). Subsequent deploys just nee
+         +d `sam build && sam deploy`.                                   
+      67 +                                                               
+      68  After deployment, SAM outputs the API URL and CloudFront distri
+          bution URL.
+      69  
+      70  ---
+
+⏺ Now update the architecture diagram to include NAT Gateway:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 20 lines, removed 14 lines
+      75                                      ┌──────────────────────────
+          ────────┐
+      76                                      │         CloudFront CDN   
+                  │
+      77                                      │  (Web UI: React SPA)     
+                  │
+      78 +                                    │  Optional: app.promptdis.
+         +com     │                                                      
+      79                                      └───────────────┬──────────
+          ────────┘
+      80                                                      │
+      81                                                      ▼
+     ...
+      86  ┌─────────┐     ┌──────────────┐     ┌─────────────────────────
+          ─────────┐
+      87  │  Client  │────▶│  API Gateway │────▶│        Lambda Function 
+                    │
+      88  │  (SDK /  │     │  (HTTP API)  │     │   (Mangum + FastAPI)   
+                    │
+      88 -│  Web UI) │     │              │     │                        
+         -          │                                                    
+      89 -└─────────┘     │  Throttling: │     │  DEPLOYMENT_MODE=lambda 
+         -         │                                                     
+      90 -                │  100 req/s   │     │  Reserved Concurrency: 1
+         -         │                                                     
+      91 -                └──────────────┘     └──────┬──────────┬───────
+         -─────────┘                                                     
+      92 -                                            │          │       
+      89 +│  Web UI) │     │  Optional:   │     │   Python 3.12          
+         +          │                                                    
+      90 +└─────────┘     │  api.X.com   │     │   DEPLOYMENT_MODE=lambda
+         +         │                                                     
+      91 +                │  Throttle:   │     │   Makefile build (cross-
+         +compiled) │                                                    
+      92 +                │  100 req/s   │     └──────┬──────────┬───────
+         +─────────┘                                                     
+      93 +                └──────────────┘            │          │       
+      94 +                                            │          │ (Priva
+         +te Subnets)                                                    
+      95                                ┌─────────────┘          └───────
+          ───────┐
+      96                                ▼                                
+                 ▼
+      97                  ┌──────────────────────┐              ┌────────
+          ───────────────┐
+     ...
+      101                  │  (SQLite, DELETE mode)│              └──────
+           ─────────────────┘
+      102                  └──────────────────────┘
+      103                                                        ┌───────
+           ────────────────┐
+      102 -                                                      │     S3
+          - Bucket         │                                             
+      103 -                ┌──────────────────────┐              │  (TTS 
+          -audio cache)    │                                             
+      104 -                │  EventBridge Rule    │              │  24h l
+          -ifecycle expiry  │                                            
+      105 -                │  (rate: 1 hour)      │              └───────
+          -────────────────┘                                             
+      106 -                │        │             │                      
+      107 -                │        ▼             │                      
+      108 -                │  Cleanup Lambda      │                      
+      109 -                │  (expired sessions)  │                      
+      110 -                └──────────────────────┘                      
+      104 +                ┌──────────────────────┐              │     S3
+          + Bucket         │                                             
+      105 +                │   NAT Gateway        │              │  (TTS 
+          +audio cache)    │                                             
+      106 +                │   (Public Subnet)    │              │  24h l
+          +ifecycle expiry  │                                            
+      107 +                │   + Internet Gateway │              └───────
+          +────────────────┘                                             
+      108 +                │   (outbound internet │                      
+      109 +                │    for GitHub API)   │              ┌───────
+          +────────────────┐                                             
+      110 +                └──────────────────────┘              │  Event
+          +Bridge Rule     │                                             
+      111 +                                                      │  (rate
+          +: 1 hour)       │                                             
+      112 +                                                      │       
+          + │              │                                             
+      113 +                                                      │       
+          + ▼              │                                             
+      114 +                                                      │  Clean
+          +up Lambda       │                                             
+      115 +                                                      │  (expi
+          +red sessions)   │                                             
+      116 +                                                      └───────
+          +────────────────┘                                             
+      117  ```
+      118  
+      119  ---
+
+⏺ Now update environment variables section to add STAGE:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 1 line, removed 1 line
+      125  | Variable | Default | Description |
+      126  |----------|---------|-------------|
+      127  | `DEPLOYMENT_MODE` | `lambda` | Switches between container an
+           d Lambda behavior |
+      128 +| `STAGE` | (from parameter) | Deployment stage — used by Mang
+          +um to strip stage prefix from API Gateway paths |             
+      129  | `DATABASE_PATH` | `/mnt/efs/data/promptdis.db` | SQLite data
+           base location on EFS |
+      130  | `DYNAMODB_STATE_TABLE` | `promptdis-oauth-states-{stage}` | 
+           DynamoDB table for OAuth state |
+      131  | `S3_TTS_BUCKET` | `promptdis-tts-cache-{stage}` | S3 bucket 
+           for TTS audio cache |
+      131 -| `AWS_REGION` | (from stack) | AWS region for SDK clients |  
+      132  
+      133  Variables you must set (via SAM parameters or `samconfig.toml`
+           ):
+      134  
+
+⏺ Update SAM template parameters section:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 13 lines, removed 3 lines
+      153  |-----------|------|---------|-------------|
+      154  | `Stage` | String | `dev` | Deployment stage (`dev`, `staging
+           `, `prod`) |
+      155  | `VpcCidr` | String | `10.0.0.0/16` | VPC CIDR block |
+      156 -| `DomainName` | String | (empty) | Custom domain for CloudFro
+          -nt (optional) |                                               
+      156 +| `GitHubClientId` | String | — | GitHub OAuth app client ID (
+          +NoEcho) |                                                     
+      157 +| `GitHubClientSecret` | String | — | GitHub OAuth app client 
+          +secret (NoEcho) |                                             
+      158 +| `AppSecretKey` | String | — | Session signing key (NoEcho) |
+      159 +| `FrontendUrl` | String | (empty) | CloudFront URL (set after
+          + first deploy) |                                              
+      160 +| `AppBaseUrl` | String | (empty) | API base URL |            
+      161 +| `CorsOrigins` | String | (empty) | Comma-separated allowed C
+          +ORS origins |                                                 
+      162 +| `DomainName` | String | (empty) | Custom domain for web UI (
+          +e.g., `app.promptdis.com`) |                                  
+      163 +| `AcmCertificateArn` | String | (empty) | ACM cert for web UI
+          + domain (must be in us-east-1) |                              
+      164 +| `ApiDomainName` | String | (empty) | Custom domain for API (
+          +e.g., `api.promptdis.com`) |                                  
+      165 +| `ApiAcmCertificateArn` | String | (empty) | ACM cert for API
+          + domain (in deploy region) |                                  
+      166 +| `ElevenLabsApiKey` | String | `none` | ElevenLabs API key (N
+          +oEcho; default is "none" because SAM rejects blank NoEcho para
+          +ms) |                                                         
+      167  
+      158 -Override during deployment:                                   
+      168 +All secrets are stored in `infra/samconfig.toml` after first `
+          +--guided` deploy (gitignored). Override during deployment:    
+      169  
+      170  ```bash
+      161 -sam deploy --parameter-overrides Stage=prod DomainName=prompts
+          -.example.com                                                  
+      171 +sam deploy --parameter-overrides Stage=prod DomainName=app.pro
+          +mptdis.com                                                    
+      172  ```
+      173  
+      174  ---
+
+⏺ Update the Deploy API section — remove manual env var update, document
+  samconfig.toml:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 28 lines, removed 23 lines
+      175  
+      176  ## 6. Deploy API
+      177  
+      178 +### Prerequisites: Generate requirements.txt                  
+      179 +                                                              
+      180 +The Lambda build uses a Makefile for cross-compilation (not th
+          +e default PythonPipBuilder). Generate `requirements.txt` befor
+          +e building:                                                   
+      181 +                                                              
+      182 +```bash                                                       
+      183 +uv pip compile pyproject.toml -o requirements.txt             
+      184 +```                                                           
+      185 +                                                              
+      186 +Re-run this whenever `pyproject.toml` dependencies change.    
+      187 +                                                              
+      188  ### First-time deployment (guided)
+      189  
+      190  ```bash
+      191  cd infra
+      192  
+      183 -# Build the Lambda package                                    
+      193 +# Build the Lambda package (uses Makefile for cross-compilatio
+          +n)                                                            
+      194  sam build
+      195  
+      196  # Deploy with interactive prompts
+     ...
+      199  
+      200  SAM guided deploy will ask for:
+      201  - Stack name (e.g., `promptdis-dev`)
+      192 -- AWS region                                                  
+      193 -- Parameter values (Stage, VpcCidr, DomainName)               
+      202 +- AWS region (e.g., `us-east-2`)                              
+      203 +- Parameter values: `Stage`, `GitHubClientId`, `GitHubClientSe
+          +cret`, `AppSecretKey`, custom domain params, etc.             
+      204  - Confirmation of IAM role creation
+      205  - Save config to `samconfig.toml` for future deploys
+      206  
+      207 +All parameters (including secrets) are saved to `infra/samconf
+          +ig.toml`, which is gitignored. You won't need to re-enter secr
+          +ets on subsequent deploys.                                    
+      208 +                                                              
+      209  ### Subsequent deployments
+      210  
+      211  ```bash
+     ...
+      213  sam build && sam deploy
+      214  ```
+      215  
+      204 -### Set environment variables                                 
+      216 +### Post-first-deploy: Set FrontendUrl                        
+      217  
+      206 -After first deploy, set secrets via the AWS Console or CLI:   
+      218 +After the first deploy, update `FrontendUrl` with the CloudFro
+          +nt distribution URL from the stack outputs:                   
+      219  
+      220  ```bash
+      209 -# Get the Lambda function name from SAM outputs               
+      210 -FUNCTION_NAME=$(aws cloudformation describe-stacks \          
+      211 -  --stack-name promptdis-dev \                                
+      212 -  --query "Stacks[0].Outputs[?OutputKey=='ApiFunctionName'].Ou
+          -tputValue" \                                                  
+      213 -  --output text)                                              
+      221 +cd infra && sam deploy --parameter-overrides \                
+      222 +  "FrontendUrl=https://d1234567890.cloudfront.net" \          
+      223 +  "CorsOrigins=https://d1234567890.cloudfront.net,http://local
+          +host:5173"                                                    
+      224 +```                                                           
+      225  
+      215 -# Update environment variables                                
+      216 -aws lambda update-function-configuration \                    
+      217 -  --function-name $FUNCTION_NAME \                            
+      218 -  --environment "Variables={                                  
+      219 -    DEPLOYMENT_MODE=lambda,                                   
+      220 -    DATABASE_PATH=/mnt/efs/data/promptdis.db,                 
+      221 -    GITHUB_CLIENT_ID=your-client-id,                          
+      222 -    GITHUB_CLIENT_SECRET=your-client-secret,                  
+      223 -    APP_SECRET_KEY=$(python -c 'import secrets; print(secrets.
+          -token_urlsafe(32))'),                                         
+      224 -    APP_BASE_URL=https://your-api-gateway-url.amazonaws.com/de
+          -v,                                                            
+      225 -    FRONTEND_URL=https://your-cloudfront-url.cloudfront.net,  
+      226 -    CORS_ORIGINS=https://your-cloudfront-url.cloudfront.net   
+      227 -  }"                                                          
+      226 +Or if using custom domains:                                   
+      227 +                                                              
+      228 +```bash                                                       
+      229 +cd infra && sam deploy --parameter-overrides \                
+      230 +  "FrontendUrl=https://app.promptdis.com" \                   
+      231 +  "AppBaseUrl=https://api.promptdis.com" \                    
+      232 +  "CorsOrigins=https://app.promptdis.com,http://localhost:5173
+          +"                                                             
+      233  ```
+      234  
+      235  ### Verify deployment
+
+⏺ Now update Deploy Web UI section:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 24 lines, removed 16 lines
+      252  
+      253  ### Build and deploy
+      254  
+      255 +The web UI uses a **runtime `config.js` pattern** instead of b
+          +uild-time environment variables. This allows the same build ar
+          +tifact to work with any API URL.                              
+      256 +                                                              
+      257  ```bash
+      256 -# From repo root                                              
+      257 -cd web                                                        
+      258 +# One-command deploy (recommended)                            
+      259 +./scripts/deploy-web.sh --stack promptdis-dev --region us-east
+          +-2                                                            
+      260 +```                                                           
+      261  
+      259 -# Set the API URL (from SAM outputs)                          
+      260 -export VITE_API_BASE_URL=https://{api-id}.execute-api.{region}
+          -.amazonaws.com/{stage}                                        
+      262 +The `deploy-web.sh` script:                                   
+      263 +1. Reads stack outputs (S3 bucket, CloudFront distribution ID,
+          + API URL)                                                     
+      264 +2. Builds the web UI with `npm ci && npm run build`           
+      265 +3. Writes `dist/config.js` with `window.__PROMPTDIS_CONFIG__ =
+          + { API_BASE_URL: "..." }`                                     
+      266 +4. Syncs `dist/` to S3                                        
+      267 +5. Invalidates CloudFront cache                               
+      268  
+      262 -# Build the SPA                                               
+      263 -npm ci && npm run build                                       
+      269 +The `--region` flag defaults to `us-east-2`.                  
+      270  
+      271 +### Manual deploy                                             
+      272 +                                                              
+      273 +If you prefer manual steps:                                   
+      274 +                                                              
+      275 +```bash                                                       
+      276 +cd web && npm ci && npm run build                             
+      277 +                                                              
+      278 +# Write runtime config (API URL from SAM outputs)             
+      279 +echo 'window.__PROMPTDIS_CONFIG__ = { API_BASE_URL: "https://a
+          +pi.promptdis.com" };' > dist/config.js                        
+      280 +                                                              
+      281  # Get the S3 bucket name from SAM outputs
+      282  WEB_BUCKET=$(aws cloudformation describe-stacks \
+      283    --stack-name promptdis-dev \
+      284 +  --region us-east-2 \                                        
+      285    --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].Outp
+           utValue" \
+      286    --output text)
+      287  
+      271 -# Sync to S3                                                  
+      288  aws s3 sync dist/ s3://$WEB_BUCKET/ --delete
+      289  
+      274 -# Invalidate CloudFront cache                                 
+      290  DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+      291    --stack-name promptdis-dev \
+      292 +  --region us-east-2 \                                        
+      293    --query "Stacks[0].Outputs[?OutputKey=='WebDistributionId'].
+           OutputValue" \
+      294    --output text)
+      295  
+     ...
+      298    --paths "/*"
+      299  ```
+      300  
+      285 -### Helper script                                             
+      286 -                                                              
+      287 -Use `scripts/deploy-web.sh` for a one-command deploy:         
+      288 -                                                              
+      289 -```bash                                                       
+      290 -./scripts/deploy-web.sh --stack promptdis-dev                 
+      291 -```                                                           
+      292 -                                                              
+      301  ---
+      302  
+      303  ## 8. Custom Domain
+
+⏺ Now rewrite the Custom Domain section:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 52 lines, removed 32 lines
+      302  
+      303  ## 8. Custom Domain
+      304  
+      305 -### API (API Gateway)                                         
+      305 +Custom domains are managed via SAM template parameters and Clo
+          +udFormation conditions (`HasCustomDomain`, `HasApiDomain`). No
+          + manual API Gateway or CloudFront configuration needed.       
+      306  
+      307 -1. Request an ACM certificate in the API Gateway region:      
+      308 -   ```bash                                                    
+      309 -   aws acm request-certificate \                              
+      310 -     --domain-name api.prompts.example.com \                  
+      311 -     --validation-method DNS                                  
+      312 -   ```                                                        
+      307 +### Two ACM Certificates Required                             
+      308  
+      314 -2. Add DNS validation records to Route 53.                    
+      309 +| Domain | Service | ACM Region | SAM Parameter |             
+      310 +|--------|---------|-----------|---------------|              
+      311 +| `app.promptdis.com` | CloudFront (web UI) | **us-east-1** (r
+          +equired by CloudFront) | `AcmCertificateArn` |                
+      312 +| `api.promptdis.com` | API Gateway (API) | **Deploy region** 
+          +(e.g., us-east-2) | `ApiAcmCertificateArn` |                  
+      313  
+      316 -3. Add custom domain to API Gateway:                          
+      317 -   ```bash                                                    
+      318 -   aws apigatewayv2 create-domain-name \                      
+      319 -     --domain-name api.prompts.example.com \                  
+      320 -     --domain-name-configurations CertificateArn=arn:aws:acm:.
+          -..                                                            
+      321 -   ```                                                        
+      314 +### Step 1: Request ACM Certificates                          
+      315  
+      323 -4. Create API mapping:                                        
+      324 -   ```bash                                                    
+      325 -   aws apigatewayv2 create-api-mapping \                      
+      326 -     --domain-name api.prompts.example.com \                  
+      327 -     --api-id {api-id} \                                      
+      328 -     --stage {stage}                                          
+      329 -   ```                                                        
+      316 +```bash                                                       
+      317 +# Web UI cert — MUST be in us-east-1                          
+      318 +aws acm request-certificate \                                 
+      319 +  --region us-east-1 \                                        
+      320 +  --domain-name app.promptdis.com \                           
+      321 +  --validation-method DNS                                     
+      322  
+      331 -5. Add Route 53 alias record pointing to the API Gateway domai
+          -n.                                                            
+      323 +# API cert — in your deploy region                            
+      324 +aws acm request-certificate \                                 
+      325 +  --region us-east-2 \                                        
+      326 +  --domain-name api.promptdis.com \                           
+      327 +  --validation-method DNS                                     
+      328 +```                                                           
+      329  
+      333 -### Web UI (CloudFront)                                       
+      330 +### Step 2: Validate Certificates                             
+      331  
+      335 -1. Request an ACM certificate in **us-east-1** (required for C
+          -loudFront):                                                   
+      336 -   ```bash                                                    
+      337 -   aws acm request-certificate \                              
+      338 -     --region us-east-1 \                                     
+      339 -     --domain-name prompts.example.com \                      
+      340 -     --validation-method DNS                                  
+      341 -   ```                                                        
+      332 +Add the DNS validation CNAME records to your DNS provider (Rou
+          +te 53, Cloudflare, etc.). Wait for both certs to show `ISSUED`
+          + status.                                                      
+      333  
+      343 -2. Add the certificate ARN and domain to the SAM template's Cl
+          -oudFront distribution.                                        
+      334 +### Step 3: Deploy with Custom Domain Parameters              
+      335  
+      345 -3. Add Route 53 alias record pointing to the CloudFront distri
+          -bution.                                                       
+      336 +```bash                                                       
+      337 +cd infra && sam deploy --parameter-overrides \                
+      338 +  "DomainName=app.promptdis.com" \                            
+      339 +  "AcmCertificateArn=arn:aws:acm:us-east-1:123456789:certifica
+          +te/abc-123" \                                                 
+      340 +  "ApiDomainName=api.promptdis.com" \                         
+      341 +  "ApiAcmCertificateArn=arn:aws:acm:us-east-2:123456789:certif
+          +icate/def-456" \                                              
+      342 +  "FrontendUrl=https://app.promptdis.com" \                   
+      343 +  "AppBaseUrl=https://api.promptdis.com" \                    
+      344 +  "CorsOrigins=https://app.promptdis.com"                     
+      345 +```                                                           
+      346  
+      347 +### Step 4: Add DNS Records                                   
+      348 +                                                              
+      349 +After deploy, get the CNAME targets from stack outputs:       
+      350 +                                                              
+      351 +```bash                                                       
+      352 +# API domain target                                           
+      353 +aws cloudformation describe-stacks --stack-name promptdis-dev 
+          +\                                                             
+      354 +  --query "Stacks[0].Outputs[?OutputKey=='ApiDomainTarget'].Ou
+          +tputValue" --output text                                      
+      355 +                                                              
+      356 +# Web UI: use the CloudFront distribution domain              
+      357 +aws cloudformation describe-stacks --stack-name promptdis-dev 
+          +\                                                             
+      358 +  --query "Stacks[0].Outputs[?OutputKey=='WebDistributionUrl']
+          +.OutputValue" --output text                                   
+      359 +```                                                           
+      360 +                                                              
+      361 +For **Cloudflare DNS** (or similar):                          
+      362 +- `api.promptdis.com` → CNAME to API Gateway regional domain (
+          +from `ApiDomainTarget` output)                                
+      363 +- `app.promptdis.com` → CNAME to CloudFront distribution domai
+          +n (from `WebDistributionUrl` output)                          
+      364 +                                                              
+      365 +> **Note on cookies:** When using custom domains (e.g., `api.p
+          +romptdis.com` → `app.promptdis.com`), session cookies are set 
+          +with `SameSite=None; Secure; Domain=.promptdis.com` to allow c
+          +ross-subdomain sharing. This is handled automatically by the `
+          +cookie_domain` property in `server/config.py`.                
+      366 +                                                              
+      367  ---
+      368  
+      369  ## 9. Monitoring
+
+⏺ Now update the Troubleshooting section with real-world issues:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 46 lines, removed 15 lines
+      477  
+      478  ## 12. Troubleshooting
+      479  
+      480 +### `pydantic_core` or `cryptography` import error            
+      481 +                                                              
+      482 +**Cause:** Lambda package contains macOS/ARM binaries instead 
+          +of Linux x86_64 binaries. This happens when `sam build` doesn'
+          +t use the Makefile cross-compilation.                         
+      483 +                                                              
+      484 +**Fix:**                                                      
+      485 +1. Ensure `requirements.txt` exists (generated from `uv pip co
+          +mpile pyproject.toml -o requirements.txt`)                    
+      486 +2. Verify both Lambda functions have `Metadata: BuildMethod: m
+          +akefile` in `template.yaml`                                   
+      487 +3. The Makefile uses `--platform manylinux2014_x86_64 --only-b
+          +inary=:all:` to install correct binaries                      
+      488 +4. Run `sam build` again and redeploy                         
+      489 +                                                              
+      490 +### "Service Unavailable" or Lambda timeout (can't reach GitHu
+          +b/external APIs)                                              
+      491 +                                                              
+      492 +**Cause:** Lambda in VPC has no internet access. A NAT Gateway
+          + is required.                                                 
+      493 +                                                              
+      494 +**Fix:**                                                      
+      495 +1. Verify the NAT Gateway exists in the public subnet (10.0.3.
+          +0/24)                                                         
+      496 +2. Check that private subnet route tables have `0.0.0.0/0 → Na
+          +tGateway` route                                               
+      497 +3. Verify the Internet Gateway is attached to the VPC         
+      498 +4. Check NAT Gateway status is "Available" (not "Failed")     
+      499 +                                                              
+      500  ### Cold start is slow (>2s)
+      501  
+      502  **Cause:** VPC + EFS attachment adds 200-800ms. First invocati
+           on after idle period (~15 min) triggers cold start.
+      503  
+      504  **Solutions:**
+      485 -- Enable provisioned concurrency (adds cost): `ReservedConcurr
+          -entExecutions: 1` + `ProvisionedConcurrencyConfig`            
+      486 -- Add a CloudWatch keep-alive rule (ping every 5 minutes):    
+      487 -  ```yaml                                                     
+      488 -  KeepAlive:                                                  
+      489 -    Type: AWS::Events::Rule                                   
+      490 -    Properties:                                               
+      491 -      ScheduleExpression: "rate(5 minutes)"                   
+      492 -      Targets:                                                
+      493 -        - Arn: !GetAtt ApiFunction.Arn                        
+      494 -          Input: '{"httpMethod":"GET","path":"/health"}'      
+      495 -  ```                                                         
+      505 +- Enable provisioned concurrency (adds cost)                  
+      506 +- Add a CloudWatch keep-alive rule (ping every 5 minutes)     
+      507  
+      508 +### "Not Found" 404 on all API routes                         
+      509 +                                                              
+      510 +**Cause:** API Gateway HTTP API v2 includes the stage in the p
+          +ath (e.g., `/dev/api/v1/prompts`). If Mangum doesn't strip the
+          + stage prefix, FastAPI can't match routes.                    
+      511 +                                                              
+      512 +**Fix:**                                                      
+      513 +1. Verify `STAGE` environment variable is set in Lambda config
+          +uration                                                       
+      514 +2. The `lambda_handler.py` uses `api_gateway_base_path=f"/{sta
+          +ge}"` to strip the prefix                                     
+      515 +3. Check that the handler reads `os.environ.get("STAGE", "")` 
+      516 +                                                              
+      517 +### Session cookie not sent (cross-domain)                    
+      518 +                                                              
+      519 +**Cause:** When API and web UI are on different subdomains (e.
+          +g., `api.promptdis.com` and `app.promptdis.com`), cookies requ
+          +ire specific settings.                                        
+      520 +                                                              
+      521 +**Fix:**                                                      
+      522 +1. Verify `FRONTEND_URL` is set to the web UI URL (e.g., `http
+          +s://app.promptdis.com`)                                       
+      523 +2. The server automatically sets `SameSite=None; Secure; Domai
+          +n=.promptdis.com` for cross-subdomain cookies                 
+      524 +3. CORS must allow credentials — `CorsOrigins` must include th
+          +e exact web UI origin                                         
+      525 +4. CORS is handled by FastAPI middleware (not API Gateway `Cor
+          +sConfiguration`, which was removed to avoid conflicts)        
+      526 +                                                              
+      527  ### SQLite "database is locked" errors
+      528  
+      499 -**Cause:** Multiple concurrent writes to SQLite. Should not ha
+          -ppen with reserved concurrency = 1.                           
+      529 +**Cause:** Multiple concurrent writes to SQLite.              
+      530  
+      531  **Check:**
+      502 -1. Verify reserved concurrency: `aws lambda get-function --fun
+          -ction-name xxx --query Configuration.ReservedConcurrentExecuti
+          -ons`                                                          
+      532 +1. `PRAGMA busy_timeout=5000` is set automatically — this shou
+          +ld handle brief contention                                    
+      533  2. Check if cleanup Lambda and API Lambda are writing simultan
+           eously
+      504 -3. Increase `PRAGMA busy_timeout` if needed (default: 5000ms) 
+      534 +3. Optionally set `ReservedConcurrentExecutions: 1` (requires 
+          +AWS concurrency quota increase)                               
+      535  
+      536  ### OAuth login fails (callback error)
+      537  
+     ...
+      551  1. Lambda VPC config matches EFS mount target subnets
+      552  2. Security group allows NFS traffic (port 2049) between Lambd
+           a and EFS
+      553  3. EFS access point exists and has correct POSIX permissions (
+           uid/gid 1000)
+      554 +4. Both Lambda functions have `DependsOn: [MountTargetA, Mount
+          +TargetB]` in the template                                     
+      555  
+      556  ### "Module not found" errors
+      557  
+     ...
+      559  
+      560  **Check:**
+      561  1. `sam build` completed without errors
+      531 -2. `pip install -e ".[lambda]"` includes mangum and boto3     
+      562 +2. `requirements.txt` exists and is up to date                
+      563  3. Check the `.aws-sam/build/` directory for the packaged func
+           tion
+      564  
+      565  ### TTS preview returns 404
+
+⏺ Update the cost comparison section:
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 2 lines, removed 2 lines
+      579  
+      580  | Aspect | Container (Docker/ECS) | Serverless (Lambda) |
+      581  |--------|----------------------|-------------------|
+      582 -| **Cost (low traffic)** | ~$9.50/month (Fargate min) | ~$2/mo
+          -nth |                                                         
+      583 -| **Cost (high traffic)** | Predictable at scale | Pay-per-req
+          -uest, can exceed container cost at 500k+ req/month |          
+      582 +| **Cost (low traffic)** | ~$9.50/month (Fargate min) | ~$34/m
+          +onth (NAT Gateway dominates) |                                
+      583 +| **Cost (high traffic)** | Predictable at scale | ~$34 base +
+          + pay-per-request |                                            
+      584  | **Cold start** | None (always running) | 200-800ms (VPC + EF
+           S) |
+      585  | **Scaling** | Manual or auto-scaling policies | Automatic (b
+           ut limited by reserved concurrency for SQLite) |
+      586  | **Eval service** | Full support (Node.js subprocess) | Not s
+           upported |
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_README.md)
+  ⎿  Added 1 line, removed 1 line
+      592  | **Local dev** | `docker compose up` | `docker compose up` (s
+           ame — Lambda mode only for deployed env) |
+      593  | **Best for** | Production with eval, high traffic | Low-traf
+           fic prompt serving, webhook-driven sync |
+      594  
+      595 -**Recommendation:** Start with serverless for cost savings. Sw
+          -itch to container if eval service is needed in the deployed en
+          -vironment or if concurrent write throughput becomes a bottlene
+          -ck.                                                           
+      595 +**Recommendation:** Serverless is best for operational simplic
+          +ity (no container management), not cost savings. The NAT Gatew
+          +ay (~$32/month) makes it more expensive than Fargate at low tr
+          +affic. Switch to container if eval service is needed or if con
+          +current write throughput becomes a bottleneck.                
+      596  
+      597  ---
+      598  
+
+⏺ Step 3: Update PROMPT_APP.md §13
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md)
+  ⎿  Added 2 lines, removed 2 lines
+      1793  | **Session cleanup** | `asyncio.create_task` background loop
+             (1hr) | EventBridge scheduled Lambda (1hr) |
+      1794  | **Web UI** | Served by FastAPI or separate Nginx | S3 + Clo
+            udFront |
+      1795  | **Eval service** | Full support (Node.js subprocess) | Not 
+            supported (container-only) |
+      1796 -| **IaC** | `Containerfile` + `docker-compose.yml` | AWS SAM 
+           -(`infra/template.yaml`) |                                    
+      1797 -| **Cost (low traffic)** | ~$9.50/month (Fargate min) | ~$2/m
+           -onth |                                                       
+      1796 +| **IaC** | `Containerfile` + `docker-compose.yml` | AWS SAM 
+           +(`infra/template.yaml`) — Makefile build, custom domain suppo
+           +rt |                                                         
+      1797 +| **Cost (low traffic)** | ~$9.50/month (Fargate min) | ~$34/
+           +month (NAT Gateway dominates) |                              
+      1798  
+      1799  ### 13.2 Container Deployment
+      1800  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md)
+  ⎿  Added 1 line, removed 1 line
+      1800  
+      1801  The existing container deployment uses:
+      1802  
+      1803 -- **`Containerfile`** (Podman-native, symlinked as `Dockerfil
+           -e`) — multi-stage build, Python 3.11                         
+      1803 +- **`Containerfile`** (Podman-native, symlinked as `Dockerfil
+           +e`) — multi-stage build, Python 3.12                         
+      1804  - **`docker-compose.yml`** — orchestrates API server and web 
+            UI
+      1805  - **Production targets:** ECS Fargate, self-hosted Docker, or
+             any container runtime
+      1806  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP.md)
+  ⎿  Added 6 lines, removed 1 line
+      1823  - **TTS cache:** **S3** bucket with 24-hour lifecycle policy.
+             Served via presigned URLs.
+      1824  - **Session cleanup:** **EventBridge** rule triggers a dedica
+            ted cleanup Lambda every hour.
+      1825  - **Web UI:** **S3 + CloudFront** static hosting with SPA rou
+            ting (404 → `index.html`).
+      1826 -- **Concurrency:** Reserved concurrency = 1 (prevents SQLite 
+           -lock contention).                                            
+      1826 +- **Concurrency:** Reserved concurrency commented out (requir
+           +es AWS quota increase); `busy_timeout=5000` handles contentio
+           +n.                                                           
+      1827 +- **Networking:** **NAT Gateway** in public subnet required —
+           + Lambda in VPC has no internet without it (~$32/month).      
+      1828 +- **Build:** Makefile-based SAM build with `--platform manyli
+           +nux2014_x86_64` for cross-compilation.                       
+      1829 +- **Custom domains:** Optional `ApiDomainName` and `DomainNam
+           +e` parameters with CloudFormation conditions.                
+      1830 +- **Cookies:** `SameSite=None; Secure; Domain=.promptdis.com`
+           + for cross-subdomain OAuth (api.X → app.X).                  
+      1831 +- **Frontend config:** Runtime `config.js` pattern (`window._
+           +_PROMPTDIS_CONFIG__`) instead of build-time env vars.        
+      1832  
+      1833  All serverless behavior is gated behind `DEPLOYMENT_MODE=lamb
+            da`. Container behavior is unchanged.
+      1834  
+
+⏺ Step 4: Update PROMPT_APP_BUILD_CHECKLIST.md Phase 6
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 24 lines, removed 19 lines
+      569  
+      570  > **Key files:** `server/config.py`, `server/services/state_st
+           ore.py`, `server/auth/github_oauth.py`, `server/db/database.py
+           `, `server/main.py`, `server/lambda_handler.py`
+      571  
+      572 -- [ ] Add `deployment_mode` config field to `server/config.py`
+          - (`"container"` or `"lambda"`, default `"container"`)         
+      573 -- [ ] Add AWS config fields to `server/config.py`: `aws_region
+          -`, `dynamodb_state_table`, `s3_tts_bucket`                    
+      574 -- [ ] Create `server/services/state_store.py`:                
+      575 -  - [ ] `StateStore` protocol with `put_state(state, ttl_secon
+          -ds)` and `validate_state(state)` methods                      
+      576 -  - [ ] `MemoryStateStore` — existing in-memory dict behavior 
+          -(container mode)                                              
+      577 -  - [ ] `DynamoDBStateStore` — DynamoDB with TTL auto-expiry (
+          -Lambda mode)                                                  
+      578 -  - [ ] Factory function: returns implementation based on `dep
+          -loyment_mode`                                                 
+      579 -- [ ] Refactor `server/auth/github_oauth.py` to use injected `
+          -StateStore` instead of `_oauth_states` dict                   
+      580 -- [ ] Modify `server/db/database.py`:                         
+      581 -  - [ ] Conditional journal mode: `DELETE` for Lambda (EFS lac
+          -ks mmap), `WAL` for container                                 
+      582 -  - [ ] Add `PRAGMA busy_timeout=5000` for Lambda mode        
+      583 -- [ ] Modify `server/main.py`:                                
+      584 -  - [ ] Conditional lifespan: skip `_session_cleanup_loop()` w
+          -hen `deployment_mode == "lambda"`                             
+      585 -- [ ] Create `server/lambda_handler.py`:                      
+      586 -  - [ ] Mangum ASGI adapter wrapping the FastAPI app          
+      587 -  - [ ] `lifespan="off"` (Lambda manages init differently)    
+      588 -- [ ] Add `mangum>=0.17.0` and `boto3>=1.34.0` to `pyproject.t
+          -oml` `[project.optional-dependencies.lambda]`                 
+      589 -- [ ] Write unit tests for `StateStore` implementations (Memor
+          -y and DynamoDB with mocked boto3)                             
+      590 -- [ ] Verify all existing tests pass unchanged (container mode
+          - is default, no behavior change)                              
+      572 +- [x] Add `deployment_mode` config field to `server/config.py`
+          + (`"container"` or `"lambda"`, default `"container"`)         
+      573 +- [x] Add AWS config fields to `server/config.py`: `aws_region
+          +`, `dynamodb_state_table`, `s3_tts_bucket`                    
+      574 +- [x] Add `cookie_domain` property to `server/config.py` — com
+          +putes `.domain.com` from `FRONTEND_URL` for cross-subdomain co
+          +okies                                                         
+      575 +- [x] Create `server/services/state_store.py`:                
+      576 +  - [x] `StateStore` protocol with `put_state(state, ttl_secon
+          +ds)` and `validate_state(state)` methods                      
+      577 +  - [x] `MemoryStateStore` — existing in-memory dict behavior 
+          +(container mode)                                              
+      578 +  - [x] `DynamoDBStateStore` — DynamoDB with TTL auto-expiry (
+          +Lambda mode)                                                  
+      579 +  - [x] Factory function: returns implementation based on `dep
+          +loyment_mode`                                                 
+      580 +- [x] Refactor `server/auth/github_oauth.py` to use injected `
+          +StateStore` instead of `_oauth_states` dict                   
+      581 +- [x] Add cross-domain cookie handling: `SameSite=None; Secure
+          +; Domain=.X.com` for production                               
+      582 +- [x] Modify `server/db/database.py`:                         
+      583 +  - [x] Conditional journal mode: `DELETE` for Lambda (EFS lac
+          +ks mmap), `WAL` for container                                 
+      584 +  - [x] Add `PRAGMA busy_timeout=5000` for Lambda mode        
+      585 +- [x] Modify `server/main.py`:                                
+      586 +  - [x] Conditional lifespan: skip `_session_cleanup_loop()` w
+          +hen `deployment_mode == "lambda"`                             
+      587 +  - [x] CORS handled by FastAPI middleware (removed from API G
+          +ateway to avoid credential header conflicts)                  
+      588 +- [x] Create `server/lambda_handler.py`:                      
+      589 +  - [x] Mangum ASGI adapter wrapping the FastAPI app          
+      590 +  - [x] `lifespan="auto"` (required for `init_db()` to run on 
+          +cold start)                                                   
+      591 +  - [x] `api_gateway_base_path=f"/{stage}"` strips stage prefi
+          +x from HTTP API v2 paths                                      
+      592 +  - [x] Reads `STAGE` env var set by SAM template             
+      593 +- [x] Add `mangum>=0.17.0` and `boto3>=1.34.0` to `pyproject.t
+          +oml` `[project.optional-dependencies.lambda]`                 
+      594 +- [x] Write unit tests for `StateStore` implementations (Memor
+          +y and DynamoDB with mocked boto3)                             
+      595 +- [x] Verify all existing tests pass unchanged (container mode
+          + is default, no behavior change)                              
+      596  
+      597  ### Sprint 6.2: TTS + Storage Abstraction
+      598  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 10 lines, removed 10 lines
+      598  
+      599  > **Key files:** `server/services/tts_storage.py`, `server/ser
+           vices/tts_service.py`, `server/api/admin.py`
+      600  
+      601 -- [ ] Create `server/services/tts_storage.py`:                
+      602 -  - [ ] `TTSStorage` protocol with `get(key)`, `put(key, data)
+          -`, `get_url(key)` methods                                     
+      603 -  - [ ] `LocalTTSStorage` — existing local filesystem behavior
+          - (container mode)                                             
+      604 -  - [ ] `S3TTSStorage` — S3 bucket with presigned URLs (Lambda
+          - mode)                                                        
+      605 -  - [ ] Factory function: returns implementation based on `dep
+          -loyment_mode`                                                 
+      606 -- [ ] Refactor `server/services/tts_service.py` to use `TTSSto
+          -rage` instead of direct `Path` operations                     
+      607 -- [ ] Update TTS preview endpoint in `server/api/admin.py`:   
+      608 -  - [ ] Container: return `FileResponse` (existing behavior)  
+      609 -  - [ ] Lambda: redirect to S3 presigned URL                  
+      610 -- [ ] Write tests for both storage backends (local filesystem 
+          -+ S3 with mocked boto3)                                       
+      601 +- [x] Create `server/services/tts_storage.py`:                
+      602 +  - [x] `TTSStorage` protocol with `get(key)`, `put(key, data)
+          +`, `get_url(key)` methods                                     
+      603 +  - [x] `LocalTTSStorage` — existing local filesystem behavior
+          + (container mode)                                             
+      604 +  - [x] `S3TTSStorage` — S3 bucket with presigned URLs (Lambda
+          + mode)                                                        
+      605 +  - [x] Factory function: returns implementation based on `dep
+          +loyment_mode`                                                 
+      606 +- [x] Refactor `server/services/tts_service.py` to use `TTSSto
+          +rage` instead of direct `Path` operations                     
+      607 +- [x] Update TTS preview endpoint in `server/api/admin.py`:   
+      608 +  - [x] Container: return `FileResponse` (existing behavior)  
+      609 +  - [x] Lambda: redirect to S3 presigned URL                  
+      610 +- [x] Write tests for both storage backends (local filesystem 
+          ++ S3 with mocked boto3)                                       
+      611  
+      612  ### Sprint 6.3: AWS Infrastructure (SAM)
+      613  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 32 lines, removed 20 lines
+      613  
+      614  > **Key files:** `infra/template.yaml`, `infra/samconfig.toml`
+           , `scripts/cleanup_sessions_handler.py`, `scripts/deploy-serve
+           rless.sh`
+      615  
+      616 -- [ ] Create `infra/template.yaml` — AWS SAM template with:   
+      617 -  - [ ] `AWS::Serverless::HttpApi` (API Gateway v2 with thrott
+          -ling)                                                         
+      618 -  - [ ] `AWS::Serverless::Function` (API Lambda — Mangum handl
+          -er, EFS mount, VPC, reserved concurrency = 1)                 
+      619 -  - [ ] `AWS::Serverless::Function` (Cleanup Lambda — EventBri
+          -dge 1-hour schedule)                                          
+      620 -  - [ ] `AWS::EFS::FileSystem` + `AccessPoint` + `MountTarget`
+          - (SQLite storage)                                             
+      621 -  - [ ] `AWS::DynamoDB::Table` (OAuth state, PAY_PER_REQUEST, 
+          -TTL enabled)                                                  
+      622 -  - [ ] `AWS::S3::Bucket` (TTS cache, 1-day lifecycle expiry) 
+      623 -  - [ ] `AWS::S3::Bucket` + `AWS::CloudFront::Distribution` (W
+          -eb UI)                                                        
+      624 -  - [ ] VPC, subnets, security groups                         
+      625 -  - [ ] Outputs: API URL, Web URL, EFS ID, table name, bucket 
+          -names                                                         
+      626 -- [ ] Create `infra/samconfig.toml` — default deploy configura
+          -tion                                                          
+      627 -- [ ] Create `scripts/cleanup_sessions_handler.py` — scheduled
+          - Lambda handler:                                              
+      628 -  - [ ] `init_db()` → `DELETE FROM sessions WHERE expires_at <
+          -= datetime('now')` → `close_db()`                             
+      629 -- [ ] Create `scripts/deploy-serverless.sh` — build + deploy h
+          -elper script                                                  
+      630 -- [ ] Test `sam local start-api` end-to-end with local SQLite 
+      631 -- [ ] Deploy to AWS dev account and verify:                   
+      632 -  - [ ] `GET /health` returns 200                             
+      633 -  - [ ] GitHub OAuth flow works (DynamoDB state store)        
+      634 -  - [ ] Webhook sync works (EFS SQLite persistence)           
+      635 -  - [ ] Prompt fetch via SDK returns correct data             
+      616 +- [x] Create `infra/template.yaml` — AWS SAM template with:   
+      617 +  - [x] `AWS::Serverless::HttpApi` (API Gateway v2 with thrott
+          +ling)                                                         
+      618 +  - [x] `AWS::Serverless::Function` (API Lambda — Mangum handl
+          +er, EFS mount, VPC)                                           
+      619 +  - [x] `AWS::Serverless::Function` (Cleanup Lambda — EventBri
+          +dge 1-hour schedule)                                          
+      620 +  - [x] `AWS::EFS::FileSystem` + `AccessPoint` + `MountTarget`
+          + (SQLite storage, uses `FileSystemTags`)                      
+      621 +  - [x] `AWS::DynamoDB::Table` (OAuth state, PAY_PER_REQUEST, 
+          +TTL enabled)                                                  
+      622 +  - [x] `AWS::S3::Bucket` (TTS cache, 1-day lifecycle expiry) 
+      623 +  - [x] `AWS::S3::Bucket` + `AWS::CloudFront::Distribution` (W
+          +eb UI)                                                        
+      624 +  - [x] VPC, private subnets, **public subnet + NAT Gateway + 
+          +Internet Gateway** (for outbound internet)                    
+      625 +  - [x] Separate security groups for Lambda and EFS           
+      626 +  - [x] Outputs: API URL, Web URL, EFS ID, table name, bucket 
+          +names, function name                                          
+      627 +  - [x] `DependsOn: [MountTargetA, MountTargetB]` on both Lamb
+          +da functions                                                  
+      628 +  - [x] `Metadata: BuildMethod: makefile` on both Lambda funct
+          +ions                                                          
+      629 +  - [x] `STAGE` env var for Mangum stage prefix stripping     
+      630 +  - [x] Custom domain support: `ApiDomainName`, `ApiAcmCertifi
+          +cateArn`, `DomainName`, `AcmCertificateArn` parameters        
+      631 +  - [x] CloudFormation Conditions: `HasCustomDomain`, `HasApiD
+          +omain`                                                        
+      632 +  - [x] `ApiCustomDomain` + `ApiMapping` resources (conditiona
+          +l)                                                            
+      633 +  - [x] Conditional `Aliases` + `ViewerCertificate` on CloudFr
+          +ont                                                           
+      634 +  - [x] `ElevenLabsApiKey` default changed to `"none"` (SAM re
+          +jects blank NoEcho params)                                    
+      635 +  - [x] `ReservedConcurrentExecutions` commented out (requires
+          + AWS quota increase)                                          
+      636 +- [x] `infra/samconfig.toml` created via `--guided` deploy (gi
+          +tignored, contains secrets)                                   
+      637 +- [x] Create `scripts/cleanup_sessions_handler.py` — scheduled
+          + Lambda handler                                               
+      638 +- [x] Create `scripts/deploy-serverless.sh` — build + deploy h
+          +elper script                                                  
+      639 +- [x] Create `Makefile` — cross-compilation with `--platform m
+          +anylinux2014_x86_64`                                          
+      640 +- [x] Create `.samignore` — excludes web/, sdk-ts/, .venv/, da
+          +ta/, etc.                                                     
+      641 +- [x] Create `requirements.txt` via `uv pip compile` (required
+          + by Makefile build)                                           
+      642 +- [x] Add `samconfig.toml` to `.gitignore`                    
+      643 +- [x] Deploy to AWS dev account and verify:                   
+      644 +  - [x] `GET /health` returns 200                             
+      645 +  - [x] GitHub OAuth flow works (DynamoDB state store + cross-
+          +domain cookies)                                               
+      646 +  - [x] Webhook sync works (EFS SQLite persistence)           
+      647 +  - [x] Prompt fetch via SDK returns correct data             
+      648  
+      649  ### Sprint 6.4: Web UI Serverless Hosting
+      650  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 12 lines, removed 9 lines
+      648  
+      649  ### Sprint 6.4: Web UI Serverless Hosting
+      650  
+      651 -> **Key files:** `infra/template.yaml` (CloudFront section), `
+          -scripts/deploy-web.sh`, `web/.env.production`                 
+      651 +> **Key files:** `infra/template.yaml` (CloudFront section), `
+          +scripts/deploy-web.sh`                                        
+      652  
+      653 -- [ ] Add S3 bucket + CloudFront distribution to SAM template 
+          -(if not already in 6.3)                                       
+      654 -- [ ] Create `scripts/deploy-web.sh`:                         
+      655 -  - [ ] Build web UI with `VITE_API_BASE_URL` pointing to API 
+          -Gateway URL                                                   
+      656 -  - [ ] `aws s3 sync dist/ s3://{bucket}/ --delete`           
+      657 -  - [ ] `aws cloudfront create-invalidation --paths "/*"`     
+      658 -- [ ] Configure CloudFront custom error responses (404 → `/ind
+          -ex.html` for SPA routing)                                     
+      659 -- [ ] Test SPA routing: direct URL access to `/prompts/foo` lo
+          -ads correctly                                                 
+      660 -- [ ] Test: web UI can call API through API Gateway (CORS, coo
+          -kies)                                                         
+      653 +- [x] Add S3 bucket + CloudFront distribution to SAM template 
+          +(done in 6.3)                                                 
+      654 +- [x] Create `scripts/deploy-web.sh`:                         
+      655 +  - [x] Reads stack outputs for S3 bucket, CloudFront ID, API 
+          +URL                                                           
+      656 +  - [x] Builds web UI with `npm ci && npm run build`          
+      657 +  - [x] Writes runtime `dist/config.js` with `window.__PROMPTD
+          +IS_CONFIG__ = { API_BASE_URL: "..." }` (replaces build-time `V
+          +ITE_API_BASE_URL`)                                            
+      658 +  - [x] `aws s3 sync dist/ s3://{bucket}/ --delete`           
+      659 +  - [x] `aws cloudfront create-invalidation --paths "/*"`     
+      660 +  - [x] `--region` flag added (default: us-east-2)            
+      661 +- [x] Configure CloudFront custom error responses (403/404 → `
+          +/index.html` for SPA routing)                                 
+      662 +- [x] Test SPA routing: direct URL access to `/prompts/foo` lo
+          +ads correctly                                                 
+      663 +- [x] Test: web UI can call API through API Gateway (CORS via 
+          +FastAPI middleware, cross-domain cookies)                     
+      664  
+      665  ### Sprint 6.5: CI/CD + Hardening
+      666  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 6 lines, removed 7 lines
+      670    - [ ] Trigger: push to `main` (after backend + frontend jobs
+            pass)
+      671    - [ ] Steps: checkout → setup-sam → configure-aws-credential
+           s → `sam build && sam deploy`
+      672  - [ ] Add web deploy step: build → s3 sync → cloudfront invali
+           dation
+      673 -- [ ] Add API Gateway throttling/usage plans to SAM template  
+      674 -- [ ] Add CloudWatch alarms to SAM template:                  
+      675 -  - [ ] Lambda errors > 5 in 5 minutes                        
+      676 -  - [ ] Lambda duration p99 > 10,000ms                        
+      677 -  - [ ] Lambda throttles > 0                                  
+      678 -  - [ ] API Gateway 5xx > 10 in 5 minutes                     
+      673 +- [x] Add API Gateway throttling to SAM template (BurstLimit: 
+          +50, RateLimit: 100)                                           
+      674 +- [x] Add CloudWatch alarms to SAM template:                  
+      675 +  - [x] Lambda errors > 5 in 5 minutes                        
+      676 +  - [x] Lambda duration p99 > 10 seconds                      
+      677 +  - [x] Lambda throttles > 0                                  
+      678  - [ ] Smoke test: end-to-end prompt fetch via Python SDK again
+           st Lambda deployment
+      679  - [ ] Smoke test: end-to-end prompt fetch via Go SDK against L
+           ambda deployment
+      681 -- [ ] Document eval service as container-only limitation in SE
+          -RVERLESS_PLAN.md                                              
+      680 +- [x] Document eval service as container-only limitation in SE
+          +RVERLESS_PLAN.md                                              
+      681  
+      682  ### Sprint 6.6: Documentation
+      683  
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPT_APP_BUILD_CHECKLIST.md)
+  ⎿  Added 14 lines, removed 5 lines
+      683  
+      684  > **Key files:** All docs in `prompt_mgmt/`
+      685  
+      686 -- [ ] Create `SERVERLESS_PLAN.md` — architecture decisions, co
+          -mponent audit, risks, cost estimate                           
+      687 -- [ ] Create `SERVERLESS_README.md` — operator deployment guid
+          -e, troubleshooting, teardown                                  
+      688 -- [ ] Update `PROMPT_APP.md` §13 — deployment options, environ
+          -ment strategy, CI/CD                                          
+      689 -- [ ] Update `PROMPTDIS_API_DOCS.md` — configuration/deploymen
+          -t reference, serverless limitations                           
+      690 -- [ ] Update `PROMPT_APP_BUILD_CHECKLIST.md` — this Phase 6 se
+          -ction                                                         
+      686 +- [x] Create `SERVERLESS_PLAN.md` — architecture decisions, co
+          +mponent audit, risks, cost estimate                           
+      687 +- [x] Create `SERVERLESS_README.md` — operator deployment guid
+          +e, troubleshooting, teardown                                  
+      688 +- [x] Update `PROMPT_APP.md` §13 — deployment options, environ
+          +ment strategy, CI/CD                                          
+      689 +- [x] Update `PROMPTDIS_API_DOCS.md` — configuration/deploymen
+          +t reference, serverless limitations                           
+      690 +- [x] Update `PROMPT_APP_BUILD_CHECKLIST.md` — this Phase 6 se
+          +ction                                                         
+      691 +- [x] Update `RUNBOOK.md` — operational guide with serverless 
+          +sections                                                      
+      692  - [ ] Update repo `README.md` — add serverless deployment opti
+           on to getting started
+      693 +- [x] Update all docs to reflect actual deployed state:       
+      694 +  - [x] Python 3.11 → 3.12, `lifespan="off"` → `"auto"`, build
+          +-time env vars → runtime `config.js`                          
+      695 +  - [x] Add NAT Gateway requirement, update cost estimates (~$
+          +2 → ~$34)                                                     
+      696 +  - [x] Document Makefile build, `.samignore`, `requirements.t
+          +xt`, cross-compilation                                        
+      697 +  - [x] Document custom domain support (ACM certs, CloudFormat
+          +ion conditions)                                               
+      698 +  - [x] Document cross-domain cookie handling (`SameSite=None`
+          +, `cookie_domain`)                                            
+      699 +  - [x] Document `STAGE` env var and `api_gateway_base_path` f
+          +or stage prefix stripping                                     
+      700 +  - [x] Add troubleshooting: pydantic_core import, NAT Gateway
+          +, cookies, 404 stage prefix                                   
+      701  
+      702  ---
+      703  
+
+⏺ Step 5: Update PROMPTDIS_API_DOCS.md
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS.md)
+  ⎿  Added 10 lines
+      1953  | Variable | Default | Required (Lambda) | Description |
+      1954  |----------|---------|-------------------|-------------|
+      1955  | `DEPLOYMENT_MODE` | `container` | Yes | `container` or `lam
+            bda` |
+      1956 +| `STAGE` | (empty) | Yes | Deployment stage — used by Mangum
+           + to strip stage prefix from API Gateway paths via `api_gatewa
+           +y_base_path` |                                               
+      1957  | `AWS_REGION` | `us-west-2` | No | AWS region for SDK client
+            s |
+      1958  | `DYNAMODB_STATE_TABLE` | `promptdis-oauth-states` | Yes | D
+            ynamoDB table for OAuth CSRF state |
+      1959  | `S3_TTS_BUCKET` | (empty) | For TTS | S3 bucket for TTS aud
+            io cache |
+      1960  
+      1961 +#### Cookie Settings (computed from FRONTEND_URL)            
+      1962 +                                                             
+      1963 +The `cookie_domain` property in `server/config.py` automatica
+           +lly computes cookie settings based on `FRONTEND_URL`:        
+      1964 +                                                             
+      1965 +| FRONTEND_URL | SameSite | Secure | Domain | Use Case |     
+      1966 +|-------------|----------|--------|--------|----------|      
+      1967 +| `http://localhost:*` | `lax` | `false` | (none) | Local dev
+           +elopment |                                                   
+      1968 +| `https://app.promptdis.com` | `none` | `true` | `.promptdis
+           +.com` | Cross-subdomain (api.X → app.X) |                    
+      1969 +                                                             
+      1970  ### Deployment Options
+      1971  
+      1972  | Option | Best For | Eval Support | Guide |
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/PROMPTDIS_API_DOCS.md)
+  ⎿  Added 1 line, removed 1 line
+      1973  |--------|---------|-------------|-------|
+      1974  | **Container** (Docker/Podman) | Local dev, full features, h
+            igh write throughput | Yes | `docker compose up` or `Containe
+            rfile` |
+      1975  | **ECS Fargate** | Production with eval, predictable latency
+             | Yes | See [DEPLOYMENT.md](../DEPLOYMENT.md) |
+      1976 -| **AWS Lambda** (serverless) | Low-traffic, cost optimizatio
+           -n, webhook-driven | No | See [SERVERLESS_README.md](./SERVERL
+           -ESS_README.md) |                                             
+      1976 +| **AWS Lambda** (serverless) | Low-traffic, operational simp
+           +licity, webhook-driven | No | See [SERVERLESS_README.md](./SE
+           +RVERLESS_README.md) |                                        
+      1977  
+      1978  ### Health Check
+      1979  
+
+⏺ Step 6: Update RUNBOOK.md
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 1 line, removed 1 line
+      27  
+      28  | Tool | Version | Purpose |
+      29  |------|---------|---------|
+      30 -| Python | 3.11+ | Backend runtime |                           
+      30 +| Python | 3.12+ | Backend runtime |                           
+      31  | Node.js | 20+ | Frontend build, TypeScript SDK |
+      32  | Docker or Podman | Latest | Container deployment |
+      33  | AWS CLI | v2 | Serverless deployment |
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 7 lines, removed 4 lines
+      244  #### Deploy Web UI to S3 + CloudFront
+      245  
+      246  ```bash
+      247 -./scripts/deploy-web.sh --stack promptdis-dev                 
+      247 +./scripts/deploy-web.sh --stack promptdis-dev --region us-east
+          +-2                                                            
+      248  ```
+      249  
+      250  This script:
+      251  1. Reads stack outputs (S3 bucket, CloudFront distribution ID,
+            API URL)
+      252 -2. Builds the web UI with `VITE_API_BASE_URL` set to the API G
+          -ateway URL                                                    
+      253 -3. Syncs `dist/` to S3                                        
+      254 -4. Invalidates CloudFront cache                               
+      252 +2. Builds the web UI with `npm ci && npm run build`           
+      253 +3. Writes runtime `dist/config.js` with `window.__PROMPTDIS_CO
+          +NFIG__ = { API_BASE_URL: "..." }`                             
+      254 +4. Syncs `dist/` to S3                                        
+      255 +5. Invalidates CloudFront cache                               
+      256  
+      257 +The `--region` flag defaults to `us-east-2`.                  
+      258 +                                                              
+      259  #### Post-Deploy: Set Frontend URL
+      260  
+      261  After the first deploy, update the `FrontendUrl` parameter wit
+           h the CloudFront distribution URL:
+
+⏺ Update the cold start troubleshooting section:
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 1 line, removed 1 line
+      690  ### **Cold start slow on Lambda**
+      691  
+      692  - Default memory: 512 MB. Increasing to 1024 MB gives proporti
+           onally more CPU and reduces cold start.
+      693 -- Python 3.11 cold starts are typically 3-5 seconds with EFS m
+          -ount.                                                         
+      693 +- Python 3.12 cold starts are typically 3-5 seconds with EFS m
+          +ount.                                                         
+      694  - The EFS mount adds ~1-2 seconds on cold start. This is unavo
+           idable.
+      695  - Consider provisioned concurrency for latency-sensitive workl
+           oads:
+      696  
+
+⏺ Now add the new troubleshooting entries to the RUNBOOK before the "Prompts not
+   appearing" section:
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 28 lines
+      701    --provisioned-concurrent-executions 1
+      702  ```
+      703  
+      704 +### **`pydantic_core` or `cryptography` import error on Lambda
+          +**                                                            
+      705 +                                                              
+      706 +- Lambda package contains macOS/ARM binaries instead of Linux 
+          +x86_64 binaries.                                              
+      707 +- Ensure `requirements.txt` exists (generated from `uv pip com
+          +pile pyproject.toml -o requirements.txt`).                    
+      708 +- Verify both Lambda functions have `Metadata: BuildMethod: ma
+          +kefile` in `template.yaml`.                                   
+      709 +- The Makefile uses `--platform manylinux2014_x86_64 --only-bi
+          +nary=:all:` for cross-compilation.                            
+      710 +- Run `sam build` again and redeploy.                         
+      711 +                                                              
+      712 +### **Lambda can't reach GitHub API / "Service Unavailable"** 
+      713 +                                                              
+      714 +- Lambda in VPC has no internet access without a NAT Gateway. 
+      715 +- Verify the NAT Gateway exists in the public subnet and its s
+          +tatus is "Available".                                         
+      716 +- Check that private subnet route tables have `0.0.0.0/0 → Nat
+          +Gateway` route.                                               
+      717 +- Verify the Internet Gateway is attached to the VPC.         
+      718 +                                                              
+      719 +### **Session cookie not sent (cross-domain)**                
+      720 +                                                              
+      721 +- When API and web UI are on different subdomains (e.g., `api.
+          +X.com` → `app.X.com`), cookies require `SameSite=None; Secure;
+          + Domain=.X.com`.                                              
+      722 +- Verify `FRONTEND_URL` is set correctly — the `cookie_domain`
+          + property computes the domain from it.                        
+      723 +- CORS must allow credentials — `CORS_ORIGINS` must include th
+          +e exact web UI origin.                                        
+      724 +- CORS is handled by FastAPI middleware (not API Gateway `Cors
+          +Configuration`, which was removed to avoid conflicts).        
+      725 +                                                              
+      726 +### **"Not Found" 404 on all Lambda API routes**              
+      727 +                                                              
+      728 +- API Gateway HTTP API v2 includes the stage in the path (e.g.
+          +, `/dev/api/v1/prompts`).                                     
+      729 +- Mangum must strip the stage prefix via `api_gateway_base_pat
+          +h`.                                                           
+      730 +- Verify `STAGE` environment variable is set in Lambda configu
+          +ration.                                                       
+      731 +                                                              
+      732  ### **Prompts not appearing after sync**
+      733  
+      734  - Check sync status: **Sync Status** page or `applications.las
+           t_synced_at` in SQLite
+
+⏺ Update the CORS row in the comparison table:
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 1 line, removed 1 line
+      948  | **Scaling** | Manual (replicas) | Automatic (concurrency=1 f
+           or SQLite safety) |
+      949  | **Cold start** | None | ~3-5 sec (Python + EFS mount) |
+      950  | **Cost (low traffic)** | Fixed (server always running) | Nea
+           r-zero (pay per request) |
+      951 -| **CORS** | FastAPI middleware | API Gateway + FastAPI middle
+          -ware |                                                        
+      951 +| **CORS** | FastAPI middleware | FastAPI middleware (API Gate
+          +way CORS removed to avoid conflicts) |                        
+      952  
+      953  ---
+      954  
+
+⏺ Update the "database is locked" section in RUNBOOK to match reality:
+
+⏺ Update(RUNBOOK.md)
+  ⎿  Added 1 line, removed 1 line
+      664  ### **"database is locked" errors**
+      665  
+      666  - In container mode: ensure only one server instance writes to
+            the database. WAL mode supports concurrent reads but only one
+            writer.
+      667 -- In Lambda mode: `ReservedConcurrentExecutions` is set to `1`
+          - in `template.yaml` to prevent concurrent writes. If you incre
+          -ased this, reduce it back to 1.                               
+      667 +- In Lambda mode: `ReservedConcurrentExecutions` is currently 
+          +commented out (requires AWS quota increase). `PRAGMA busy_time
+          +out=5000` handles brief contention. Optionally request a quota
+          + increase and uncomment it.                                   
+      668  - Check if a `sqlite3` CLI session is holding a lock: close it
+           .
+      669  
+      670  ```bash
+
+⏺ Now let me do a final verification pass — search for any remaining stale
+  references.
+
+❯ Tool loaded. 
+
+⏺ Searched for 5 patterns (ctrl+o to expand)
+
+⏺ A few remaining stale references to fix. Let me clean those up.
+
+⏺ Update(~/src/futureself/dwight_docs/prompt_mgmt/SERVERLESS_PLAN.md)
+  ⎿  Added 1 line, removed 1 line
+      158  
+      159  - S3 bucket: `promptdis-web-{stage}` (private, CloudFront OAI 
+           access)
+      160  - CloudFront: HTTPS, custom domain, SPA routing (404 → `index.
+           html`)
+      161 -- `VITE_API_BASE_URL` points to API Gateway URL               
+      161 +- API URL configured via runtime `config.js` (`window.__PROMPT
+          +DIS_CONFIG__`) written by `deploy-web.sh`                     
+      162  - Cache: `Cache-Control: max-age=31536000` for hashed assets, 
+           `no-cache` for `index.html`
+      163  
+      164  ### 3.5 Session Cleanup: EventBridge Scheduled Lambda
+
+⏺ Now let me also check for stale references in the RUNBOOK:
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ That's in the container deployment section (Docker build arg), which is
+  correct for the container deployment path — VITE_API_BASE_URL is still used at
+   build time for containers. The runtime config.js pattern is specific to the
+  serverless deploy-web.sh flow. So this is fine.
+
+  Let me also verify no stale Reserved Concurrency: 1 references remain in the
+  architecture diagrams:
+
+⏺ Searched for 2 patterns (ctrl+o to expand)
+
+⏺ Good. Let me do one final check for ~$2 cost references:
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Those are both in context of documenting the change (not stating ~$2 as
+  current), so they're correct.
+
+  All updates are complete. Here's a summary of what was changed across all 6
+  files:
+
+  Summary of Changes
+
+  1. SERVERLESS_PLAN.md
+
+  - Status: Proposed → Implemented
+  - §3.1: lifespan="off" → lifespan="auto", added api_gateway_base_path and
+  STAGE env var
+  - §3.2: Added NAT Gateway requirement, public subnet, Internet Gateway, cost
+  impact (~$32/month)
+  - §3.2: Updated concurrency control (reserved concurrency commented out,
+  busy_timeout as safety net)
+  - §3.10→3.11: Added Makefile-based cross-compilation section
+  - §4.7: Updated lambda handler code with lifespan="auto",
+  api_gateway_base_path, STAGE
+  - §5: Complete rewrite — Python 3.12, NAT Gateway, custom domains, conditions,
+   DependsOn, BuildMethod, CORS removed from API Gateway, separate security
+  groups, expanded outputs
+  - §6: Added NAT Gateway cost risk, cross-compilation risk, updated lifespan
+  reference
+  - §8: Added NAT Gateway ~$32/month, updated total from ~$2 to ~$34, updated
+  break-even analysis
+  - §3.4: Updated VITE_API_BASE_URL → runtime config.js pattern
+
+  2. SERVERLESS_README.md
+
+  - Prerequisites: Python 3.11 → 3.12
+  - Quick start: Added requirements.txt generation step, --region flag,
+  samconfig.toml note
+  - Architecture diagram: Added NAT Gateway, Python 3.12, custom domains,
+  Makefile build
+  - Environment variables: Added STAGE env var
+  - SAM parameters: Full expansion with all actual parameters including secrets,
+   custom domains, ElevenLabsApiKey default
+  - Deploy API: Replaced manual env var update with samconfig.toml pattern,
+  added prerequisites section
+  - Deploy Web UI: Rewrote for runtime config.js pattern, --region flag
+  - Custom Domain: Complete rewrite with two ACM certs, SAM parameters,
+  Cloudflare DNS, cookie note
+  - Troubleshooting: Added 4 new entries (pydantic_core import, NAT Gateway,
+  cookies, 404 stage prefix)
+  - Cost comparison: Updated ~$2 → ~$34, updated recommendation
+
+  3. PROMPT_APP.md §13
+
+  - IaC row: Added Makefile build, custom domain support
+  - Cost: ~$2 → ~$34
+  - Container: Python 3.11 → 3.12
+  - Serverless §13.3: Added NAT Gateway, Makefile build, custom domains,
+  cookies, runtime config.js, updated concurrency note
+
+  4. PROMPT_APP_BUILD_CHECKLIST.md Phase 6
+
+  - Sprint 6.1: All items marked [x], added cookie handling, lifespan="auto",
+  api_gateway_base_path, STAGE, CORS
+  - Sprint 6.2: All items marked [x]
+  - Sprint 6.3: All items marked [x], expanded with all discovered items (NAT
+  Gateway, Makefile, .samignore, FileSystemTags, DependsOn, custom domains,
+  conditions, etc.)
+  - Sprint 6.4: All items marked [x], updated for runtime config.js pattern,
+  --region flag
+  - Sprint 6.5: Partially marked (alarms done, CI/CD pipeline still pending)
+  - Sprint 6.6: Mostly marked [x], added comprehensive doc update items
+
+  5. PROMPTDIS_API_DOCS.md
+
+  - Added STAGE env var to serverless settings
+  - Added cookie settings table (computed from FRONTEND_URL)
+  - Updated Lambda deployment description
+
+  6. RUNBOOK.md
+
+  - Python 3.11+ → 3.12+
+  - Updated deploy-web.sh docs (runtime config.js, --region flag)
+  - Added 4 new troubleshooting sections (pydantic_core, NAT Gateway, cookies,
+  404 stage prefix)
+  - Updated database locked section (reserved concurrency commented out)
+  - Updated CORS comparison row
+  - Updated cold start Python version reference
+
+✻ Crunched for 11m 16s

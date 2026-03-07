@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useOrgs, useApps, useCreateOrg, useCreateApp, useGitHubOrgs, useGitHubRepos } from "../../hooks/usePrompts";
+import { useOrgs, useApps, useCreateOrg, useCreateApp, useGitHubOrgs, useGitHubRepos, useRefreshOrgs, useRemoveOrg } from "../../hooks/usePrompts";
+import type { RefreshedOrg } from "../../api/prompts";
+import { ApiError } from "../../api/client";
 import Modal from "./Modal";
 
 export default function OrgAppSelector() {
@@ -23,8 +25,15 @@ export default function OrgAppSelector() {
   const [appBranch, setAppBranch] = useState("main");
   const [appSubdir, setAppSubdir] = useState("");
 
+  // Refreshed orgs with restriction status
+  const [refreshedOrgs, setRefreshedOrgs] = useState<RefreshedOrg[] | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [isTokenExpired, setIsTokenExpired] = useState(false);
+
   const createOrg = useCreateOrg();
   const createApp = useCreateApp(selectedOrgId ?? "");
+  const refreshOrgsMutation = useRefreshOrgs();
+  const removeOrgMutation = useRemoveOrg();
 
   // GitHub discovery hooks — always called, conditional fetching via enabled
   const { data: ghOrgs, isLoading: ghOrgsLoading, error: ghOrgsError } = useGitHubOrgs();
@@ -43,6 +52,9 @@ export default function OrgAppSelector() {
     setShowAddOrg(false);
     setSelectedGHOwner("");
     setOrgDisplayName("");
+    setRefreshedOrgs(null);
+    setRefreshError(null);
+    setIsTokenExpired(false);
     createOrg.reset();
   }
 
@@ -79,6 +91,33 @@ export default function OrgAppSelector() {
     navigate(`/apps/${app.id}/prompts`);
   }
 
+  async function handleRefreshOrgs() {
+    setRefreshError(null);
+    setIsTokenExpired(false);
+    try {
+      const result = await refreshOrgsMutation.mutateAsync();
+      setRefreshedOrgs(result);
+    } catch (err) {
+      if (err instanceof ApiError && (err.code === "GITHUB_TOKEN_EXPIRED" || err.status === 401)) {
+        setIsTokenExpired(true);
+        setRefreshError("Your GitHub token has expired.");
+      } else {
+        setRefreshError((err as Error).message || "Failed to refresh orgs.");
+      }
+    }
+  }
+
+  async function handleRemoveOrg(orgId: string) {
+    try {
+      await removeOrgMutation.mutateAsync(orgId);
+      if (selectedOrgId === orgId) {
+        setSelectedOrgId(null);
+      }
+    } catch {
+      // Error state is tracked via removeOrgMutation.error
+    }
+  }
+
   const filteredRepos = ghRepos?.filter((r) =>
     r.name.toLowerCase().includes(repoFilter.toLowerCase())
   ) ?? [];
@@ -87,13 +126,23 @@ export default function OrgAppSelector() {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <label className="block text-xs font-medium text-gray-500">Organization</label>
-        <button
-          onClick={() => setShowAddOrg(true)}
-          className="text-xs text-gray-400 hover:text-gray-600"
-          title="Add organization"
-        >
-          +
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleRefreshOrgs}
+            disabled={refreshOrgsMutation.isPending}
+            className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
+            title="Refresh orgs from GitHub"
+          >
+            {refreshOrgsMutation.isPending ? "..." : "↻"}
+          </button>
+          <button
+            onClick={() => setShowAddOrg(true)}
+            className="text-xs text-gray-400 hover:text-gray-600"
+            title="Add organization"
+          >
+            +
+          </button>
+        </div>
       </div>
       <select
         value={selectedOrgId ?? ""}
@@ -107,6 +156,36 @@ export default function OrgAppSelector() {
           </option>
         ))}
       </select>
+
+      {refreshError && (
+        <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5">
+          <p className="text-xs text-red-600">{refreshError}</p>
+          {isTokenExpired && (
+            <a
+              href="/api/v1/auth/github/login"
+              className="mt-1 inline-block text-xs font-medium text-blue-600 hover:underline"
+            >
+              Log in again
+            </a>
+          )}
+        </div>
+      )}
+
+      {selectedOrgId && selectedPdOrg && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleRemoveOrg(selectedOrgId)}
+            disabled={removeOrgMutation.isPending}
+            className="text-xs text-red-400 hover:text-red-600 disabled:opacity-50"
+            title="Remove this org from your list"
+          >
+            {removeOrgMutation.isPending ? "Removing…" : "Remove org"}
+          </button>
+          {removeOrgMutation.error && (
+            <span className="text-xs text-red-600">{(removeOrgMutation.error as Error).message}</span>
+          )}
+        </div>
+      )}
 
       {selectedOrgId && (
         <div className="flex items-center justify-between">
@@ -142,41 +221,103 @@ export default function OrgAppSelector() {
         <Modal title="Add Organization" onClose={handleAddOrgClose}>
           <form onSubmit={submitAddOrg} className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                GitHub account <span className="text-red-500">*</span>
-              </label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="block text-xs font-medium text-gray-700">
+                  GitHub account <span className="text-red-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleRefreshOrgs}
+                  disabled={refreshOrgsMutation.isPending}
+                  className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                >
+                  {refreshOrgsMutation.isPending ? "Refreshing…" : "Refresh from GitHub"}
+                </button>
+              </div>
               {ghOrgsLoading ? (
                 <p className="text-xs text-gray-400">Loading GitHub accounts…</p>
               ) : ghOrgsError ? (
                 <p className="text-xs text-red-600">Failed to load GitHub accounts.</p>
               ) : (
                 <div className="max-h-48 overflow-y-auto rounded border border-gray-200">
-                  {ghOrgs?.map((ghOrg) => (
-                    <button
-                      key={ghOrg.login}
-                      type="button"
-                      onClick={() => {
-                        setSelectedGHOwner(ghOrg.login);
-                        if (!orgDisplayName) setOrgDisplayName(ghOrg.login);
-                      }}
-                      className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
-                        selectedGHOwner === ghOrg.login ? "bg-blue-50 font-medium" : ""
-                      }`}
+                  {ghOrgs?.map((ghOrg) => {
+                    const refreshInfo = refreshedOrgs?.find((r) => r.login === ghOrg.login);
+                    return (
+                      <button
+                        key={ghOrg.login}
+                        type="button"
+                        onClick={() => {
+                          setSelectedGHOwner(ghOrg.login);
+                          if (!orgDisplayName) setOrgDisplayName(ghOrg.login);
+                        }}
+                        className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-gray-50 ${
+                          selectedGHOwner === ghOrg.login ? "bg-blue-50 font-medium" : ""
+                        }`}
+                      >
+                        {ghOrg.avatar_url && (
+                          <img
+                            src={ghOrg.avatar_url}
+                            alt={ghOrg.login}
+                            className="h-5 w-5 rounded-full"
+                          />
+                        )}
+                        <span className="flex-1 truncate">{ghOrg.login}</span>
+                        {refreshInfo?.status === "authorized" && (
+                          <span className="shrink-0 rounded bg-green-100 px-1 py-0.5 text-xs text-green-700">authorized</span>
+                        )}
+                        {!refreshInfo && ghOrg.description && (
+                          <span className="truncate text-xs text-gray-400">{ghOrg.description}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {/* Show restricted orgs that aren't in ghOrgs */}
+                  {refreshedOrgs?.filter((r) => r.status === "restricted").map((restricted) => (
+                    <div
+                      key={restricted.login}
+                      className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm bg-yellow-50"
                     >
-                      {ghOrg.avatar_url && (
+                      {restricted.avatar_url && (
                         <img
-                          src={ghOrg.avatar_url}
-                          alt={ghOrg.login}
-                          className="h-5 w-5 rounded-full"
+                          src={restricted.avatar_url}
+                          alt={restricted.login}
+                          className="h-5 w-5 rounded-full opacity-50"
                         />
                       )}
-                      <span className="flex-1 truncate">{ghOrg.login}</span>
-                      {ghOrg.description && (
-                        <span className="truncate text-xs text-gray-400">{ghOrg.description}</span>
+                      <span className="flex-1 truncate text-gray-500">{restricted.login}</span>
+                      <span className="shrink-0 rounded bg-yellow-100 px-1 py-0.5 text-xs text-yellow-700">restricted</span>
+                      {restricted.request_url && (
+                        <a
+                          href={restricted.request_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 text-xs text-blue-600 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          Request access
+                        </a>
                       )}
-                    </button>
+                    </div>
                   ))}
                 </div>
+              )}
+              {refreshError && (
+                <div className="mt-1 rounded border border-red-200 bg-red-50 px-2 py-1.5">
+                  <p className="text-xs text-red-600">{refreshError}</p>
+                  {isTokenExpired && (
+                    <a
+                      href="/api/v1/auth/github/login"
+                      className="mt-1 inline-block text-xs font-medium text-blue-600 hover:underline"
+                    >
+                      Log in again
+                    </a>
+                  )}
+                </div>
+              )}
+              {refreshedOrgs?.some((r) => r.status === "restricted") && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Restricted orgs require the OAuth app to be approved. Click "Request access" to manage on GitHub.
+                </p>
               )}
             </div>
             <div>
