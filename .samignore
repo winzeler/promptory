@@ -1,0 +1,31 @@
+# Node / frontend
+web/
+sdk-ts/
+node_modules/
+*.js.map
+
+# Python dev
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+sdk-py/
+
+# Data / infra
+data/
+infra/
+.aws-sam/
+
+# Docker
+Dockerfile
+Containerfile
+docker-compose.yml
+
+# Docs / logs
+*.txt
+*.md
+LICENSE
+.git/
+.gitignore
+.github/

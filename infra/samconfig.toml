@@ -7,7 +7,10 @@ version = 0.1
 stack_name = "promptdis-dev"
 resolve_s3 = true
 s3_prefix = "promptdis-dev"
-region = "us-west-2"
 capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
 confirm_changeset = true
-parameter_overrides = "Stage=dev"
+parameter_overrides = "Stage=\"dev\" VpcCidr=\"10.0.0.0/16\" SubnetACidr=\"10.0.1.0/24\" SubnetBCidr=\"10.0.2.0/24\" GitHubClientId=\"Ov23liIFsKaL0Q0hb3kE\" GitHubClientSecret=\"b53112d57a24044a8dca3d9e6ccf2437794d3112\" AppSecretKey=\"dbe53663e3c72f586ce044be240a7c1f0a18d84e26e1b49224c3349188acbd72\" FrontendUrl=\"https://app.promptdis.com\" CorsOrigins=\"https://app.promptdis.com\" AppBaseUrl=\"https://api.promptdis.com\" DomainName=\"app.promptdis.com\" AcmCertificateArn=\"arn:aws:acm:us-east-1:113892880567:certificate/090703e8-4b13-426c-9d93-aa9e15b88d6b\" ApiDomainName=\"api.promptdis.com\" ApiAcmCertificateArn=\"arn:aws:acm:us-east-2:113892880567:certificate/207549b5-e96f-4772-a668-b30e7aecb4b3\" ElevenLabsApiKey=\"none\""
+image_repositories = []
+
+[default.global.parameters]
+region = "us-east-2"

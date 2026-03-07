@@ -1,4 +1,7 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+export const API_BASE =
+  (window as any).__PROMPTDIS_CONFIG__?.API_BASE_URL ||
+  import.meta.env.VITE_API_BASE_URL ||
+  "";
 
 export async function apiFetch<T = unknown>(
   path: string,

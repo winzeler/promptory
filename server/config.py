@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    @property
+    def cookie_domain(self) -> str | None:
+        """Return shared cookie domain for cross-subdomain auth, or None for localhost."""
+        from urllib.parse import urlparse
+        host = urlparse(self.frontend_url).hostname or ""
+        if host in ("localhost", "127.0.0.1") or host.startswith("localhost:"):
+            return None
+        parts = host.split(".")
+        if len(parts) >= 2:
+            return "." + ".".join(parts[-2:])
+        return None
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
